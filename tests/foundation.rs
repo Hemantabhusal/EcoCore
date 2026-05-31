@@ -253,3 +253,39 @@ fn scene_activity_clamps_core_loads_to_normalized_range() {
 
     assert_eq!(activity.core_loads(), &[0.0, 1.0]);
 }
+
+#[test]
+fn landscape_wraps_dense_cpu_activity_into_readable_lanes() {
+    let activity = SceneActivity::from_core_loads(vec![0.50; 8]);
+
+    let frame =
+        build_landscape_frame_with_activity(24, 10, 0, &activity).expect("valid dense frame");
+
+    let upper_lane = count_glyphs_on_row(&frame, 4, 'O');
+    let lower_lane = count_glyphs_on_row(&frame, 5, 'O');
+
+    assert_eq!(upper_lane, 4);
+    assert_eq!(lower_lane, 4);
+}
+
+#[test]
+fn active_cpu_creatures_drift_one_cell_without_leaving_bounds() {
+    let activity = SceneActivity::from_core_loads(vec![0.95]);
+
+    let first_frame =
+        build_landscape_frame_with_activity(24, 10, 0, &activity).expect("valid first frame");
+    let second_frame =
+        build_landscape_frame_with_activity(24, 10, 1, &activity).expect("valid second frame");
+
+    assert_eq!(first_frame.get(12, 5).expect("center creature").glyph, '@');
+    assert_eq!(
+        second_frame.get(13, 5).expect("drifted creature").glyph,
+        '@'
+    );
+}
+
+fn count_glyphs_on_row(frame: &Framebuffer, y: u16, glyph: char) -> usize {
+    (0..frame.width())
+        .filter(|x| frame.get(*x, y).is_some_and(|cell| cell.glyph == glyph))
+        .count()
+}
