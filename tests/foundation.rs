@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ecosystem::{
     app::{StartupEnvironment, render_initial_frame},
@@ -8,7 +10,10 @@ use ecosystem::{
         SceneActivity, build_landscape_frame, build_landscape_frame_with_activity,
         build_static_landscape_frame,
     },
-    runtime::{ResizeDecision, RuntimeConfig, resize_decision, target_frame_duration},
+    runtime::{
+        FrameStats, ResizeDebouncer, ResizeDecision, RuntimeConfig, resize_decision,
+        target_frame_duration,
+    },
     terminal::{
         AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize,
         validate_terminal_environment,
@@ -217,6 +222,7 @@ fn runtime_default_targets_thirty_frames_per_second() {
     assert_eq!(config.target_fps, 30);
     assert_eq!(config.frame_duration(), target_frame_duration(30));
     assert_eq!(config.metrics_sample_interval.as_millis(), 500);
+    assert_eq!(config.resize_debounce.as_millis(), 50);
 }
 
 #[test]
@@ -307,6 +313,44 @@ fn resize_decision_suspends_when_new_size_is_too_small() {
             minimum: TerminalSize::new(80, 24)
         }
     );
+}
+
+#[test]
+fn resize_debouncer_coalesces_rapid_events_to_latest_size() {
+    let mut debouncer = ResizeDebouncer::new(Duration::from_millis(50));
+    let start = Instant::now();
+
+    debouncer.observe(TerminalSize::new(100, 30), start);
+    debouncer.observe(
+        TerminalSize::new(120, 40),
+        start + Duration::from_millis(10),
+    );
+
+    assert_eq!(debouncer.take_due(start + Duration::from_millis(40)), None);
+    assert_eq!(
+        debouncer.take_due(start + Duration::from_millis(60)),
+        Some(ResizeDecision::Redraw {
+            size: TerminalSize::new(120, 40)
+        })
+    );
+    assert_eq!(debouncer.take_due(start + Duration::from_millis(80)), None);
+}
+
+#[test]
+fn frame_stats_summarize_render_output_for_trace_mode() {
+    let mut stats = FrameStats::default();
+
+    stats.record_frame(10, 100);
+    stats.record_frame(30, 260);
+
+    assert_eq!(stats.frames(), 2);
+    assert_eq!(stats.average_changed_cells(), 20);
+    assert_eq!(stats.average_bytes(), 180);
+    assert_eq!(
+        stats.take_summary(),
+        "2 frames, avg 20 changed cells, avg 180 bytes"
+    );
+    assert_eq!(stats.frames(), 0);
 }
 
 fn count_glyphs_on_row(frame: &Framebuffer, y: u16, glyph: char) -> usize {

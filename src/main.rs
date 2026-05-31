@@ -12,7 +12,7 @@ use ecosystem::{
     input::{EngineAction, key_event_to_action},
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
     render::{SceneActivity, build_landscape_frame, build_landscape_frame_with_activity},
-    runtime::{ResizeDecision, RuntimeConfig, resize_decision},
+    runtime::{FrameStats, ResizeDebouncer, ResizeDecision, RuntimeConfig},
     terminal::{
         AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen,
         current_terminal_size,
@@ -71,6 +71,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     let mut scene_activity = SceneActivity::default();
     let mut next_metrics_at = Instant::now();
     let mut rendering_suspended = false;
+    let mut resize_debouncer = ResizeDebouncer::new(config.resize_debounce);
+    let mut frame_stats = FrameStats::default();
     traces.record(TraceEvent::new(
         "frame",
         format!("targeting {} fps", config.target_fps),
@@ -96,8 +98,25 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             next_metrics_at = now + config.metrics_sample_interval;
         }
 
+        if let Some(decision) = resize_debouncer.take_due(now) {
+            match decision {
+                ResizeDecision::Redraw { size: new_size } => {
+                    size = new_size;
+                    previous_frame =
+                        redraw_resized_frame(&mut session, size, tick, &scene_activity, traces)?;
+                    rendering_suspended = false;
+                    next_frame_at = Instant::now() + frame_duration;
+                }
+                ResizeDecision::Suspend { actual, minimum } => {
+                    render_resize_suspended_message(&mut session, actual, minimum, traces)?;
+                    rendering_suspended = true;
+                }
+            }
+            continue;
+        }
+
         if now >= next_frame_at {
-            if !rendering_suspended {
+            if !rendering_suspended && resize_debouncer.ready_at().is_none() {
                 let current_frame = build_landscape_frame_with_activity(
                     size.width,
                     size.height,
@@ -112,11 +131,13 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     session.writer_mut().flush()?;
                 }
 
+                frame_stats.record_frame(frame_output.changed_cells, frame_output.bytes.len());
                 if tick.is_multiple_of(u64::from(config.target_fps)) {
+                    let summary = frame_stats.take_summary();
                     traces.record(TraceEvent::new(
                         "frame",
                         format!(
-                            "tick {tick}: {} changed cells, {} bytes",
+                            "tick {tick}: {} changed cells, {} bytes; {summary}",
                             frame_output.changed_cells,
                             frame_output.bytes.len()
                         ),
@@ -133,7 +154,10 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
 
         // Poll only until the next frame deadline so input remains responsive
         // without waking the process unnecessarily between animation ticks.
-        let poll_timeout = (next_frame_at - now).min(INPUT_POLL_INTERVAL);
+        let mut poll_timeout = (next_frame_at - now).min(INPUT_POLL_INTERVAL);
+        if let Some(ready_at) = resize_debouncer.ready_at() {
+            poll_timeout = poll_timeout.min(ready_at.saturating_duration_since(now));
+        }
         if !event::poll(poll_timeout)? {
             continue;
         }
@@ -148,24 +172,14 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             },
             Event::Resize(width, height) => {
                 let new_size = TerminalSize::new(width, height);
-                match resize_decision(new_size) {
-                    ResizeDecision::Redraw { size: new_size } => {
-                        size = new_size;
-                        previous_frame = redraw_resized_frame(
-                            &mut session,
-                            size,
-                            tick,
-                            &scene_activity,
-                            traces,
-                        )?;
-                        rendering_suspended = false;
-                        next_frame_at = Instant::now() + frame_duration;
-                    }
-                    ResizeDecision::Suspend { actual, minimum } => {
-                        render_resize_suspended_message(&mut session, actual, minimum, traces)?;
-                        rendering_suspended = true;
-                    }
-                }
+                // Terminal emulators can emit many resize events while the
+                // user drags a window edge. Queue the latest size and redraw
+                // once after the burst settles.
+                resize_debouncer.observe(new_size, Instant::now());
+                traces.record(TraceEvent::new(
+                    "terminal.resize",
+                    format!("queued resize to {}x{}", new_size.width, new_size.height),
+                ));
             }
             _ => {}
         }
