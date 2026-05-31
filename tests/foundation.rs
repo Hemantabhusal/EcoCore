@@ -1,8 +1,11 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ecosystem::{
     app::{StartupEnvironment, render_initial_frame},
     diagnostics::{TraceCollector, TraceEvent},
     framebuffer::{Cell, Color, Framebuffer},
-    render::build_static_landscape_frame,
+    input::{EngineAction, key_event_to_action},
+    render::{build_landscape_frame, build_static_landscape_frame},
+    runtime::{RuntimeConfig, target_frame_duration},
     terminal::{
         AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize,
         validate_terminal_environment,
@@ -182,4 +185,48 @@ fn terminal_session_drop_restores_cursor_style_and_main_screen() {
     let encoded = String::from_utf8(output).expect("terminal controls are utf8");
     assert!(encoded.contains("frame bytes"));
     assert!(encoded.ends_with("\u{1b}[0m\u{1b}[?25h\u{1b}[?1049l"));
+}
+
+#[test]
+fn input_maps_q_and_escape_to_quit() {
+    assert_eq!(
+        key_event_to_action(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)),
+        EngineAction::Quit
+    );
+    assert_eq!(
+        key_event_to_action(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+        EngineAction::Quit
+    );
+}
+
+#[test]
+fn input_ignores_non_quit_keys() {
+    assert_eq!(
+        key_event_to_action(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+        EngineAction::None
+    );
+}
+
+#[test]
+fn runtime_default_targets_thirty_frames_per_second() {
+    let config = RuntimeConfig::default();
+
+    assert_eq!(config.target_fps, 30);
+    assert_eq!(config.frame_duration(), target_frame_duration(30));
+}
+
+#[test]
+fn animated_landscape_changes_incrementally_between_ticks() {
+    let previous = build_landscape_frame(20, 8, 0).expect("valid previous frame");
+    let current = build_landscape_frame(20, 8, 1).expect("valid current frame");
+
+    let output = AnsiDiffEncoder::new()
+        .encode_diff(&previous, &current)
+        .expect("matching frames");
+
+    assert!(output.changed_cells > 0);
+    assert!(
+        output.changed_cells < usize::from(previous.width()) * usize::from(previous.height()),
+        "animation should not redraw the whole frame"
+    );
 }

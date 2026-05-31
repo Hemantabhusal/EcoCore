@@ -9,6 +9,14 @@ pub fn build_static_landscape_frame(
     width: u16,
     height: u16,
 ) -> Result<Framebuffer, FramebufferError> {
+    build_landscape_frame(width, height, 0)
+}
+
+pub fn build_landscape_frame(
+    width: u16,
+    height: u16,
+    tick: u64,
+) -> Result<Framebuffer, FramebufferError> {
     let mut frame = Framebuffer::new(
         width,
         height,
@@ -27,12 +35,21 @@ pub fn build_static_landscape_frame(
     for x in 0..width {
         frame.set(x, ground_y, Cell::new('.', Color::rgb(90, 150, 85), GROUND))?;
 
-        let water_glyph = if x % 4 == 0 { '>' } else { '~' };
+        let water_glyph = if (u64::from(x) + tick) % 4 == 0 {
+            '>'
+        } else {
+            '~'
+        };
         frame.set(x, water_y, Cell::new(water_glyph, WATER, SKY))?;
     }
 
     // The first MVP frame keeps one creature visible before live CPU data exists.
-    frame.set(center_x, creature_y, Cell::new('o', CREATURE, SKY))?;
+    let creature_glyph = if tick % 2 == 0 { 'o' } else { 'O' };
+    frame.set(
+        center_x,
+        creature_y,
+        Cell::new(creature_glyph, CREATURE, SKY),
+    )?;
 
     Ok(frame)
 }
