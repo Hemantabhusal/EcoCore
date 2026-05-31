@@ -8,11 +8,15 @@ use crossterm::event::{self, Event};
 use ecosystem::{
     app::{StartupEnvironment, render_initial_frame},
     diagnostics::{TraceCollector, TraceEvent},
+    framebuffer::{Cell, Framebuffer},
     input::{EngineAction, key_event_to_action},
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
     render::{SceneActivity, build_landscape_frame, build_landscape_frame_with_activity},
-    runtime::RuntimeConfig,
-    terminal::{AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, current_terminal_size},
+    runtime::{ResizeDecision, RuntimeConfig, resize_decision},
+    terminal::{
+        AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen,
+        current_terminal_size,
+    },
 };
 
 const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -38,7 +42,7 @@ fn main() -> ExitCode {
 
 fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error>> {
     let config = RuntimeConfig::default();
-    let size = current_terminal_size()?;
+    let mut size = current_terminal_size()?;
     let encoded = render_initial_frame(
         StartupEnvironment::new(io::stdout().is_terminal(), size),
         traces,
@@ -66,6 +70,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     let mut cpu_sampler = CpuSampler::default();
     let mut scene_activity = SceneActivity::default();
     let mut next_metrics_at = Instant::now();
+    let mut rendering_suspended = false;
     traces.record(TraceEvent::new(
         "frame",
         format!("targeting {} fps", config.target_fps),
@@ -92,32 +97,35 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
         }
 
         if now >= next_frame_at {
-            let current_frame = build_landscape_frame_with_activity(
-                size.width,
-                size.height,
-                tick,
-                &scene_activity,
-            )?;
-            let frame_output =
-                AnsiDiffEncoder::new().encode_diff(&previous_frame, &current_frame)?;
+            if !rendering_suspended {
+                let current_frame = build_landscape_frame_with_activity(
+                    size.width,
+                    size.height,
+                    tick,
+                    &scene_activity,
+                )?;
+                let frame_output =
+                    AnsiDiffEncoder::new().encode_diff(&previous_frame, &current_frame)?;
 
-            if !frame_output.bytes.is_empty() {
-                session.writer_mut().write_all(&frame_output.bytes)?;
-                session.writer_mut().flush()?;
+                if !frame_output.bytes.is_empty() {
+                    session.writer_mut().write_all(&frame_output.bytes)?;
+                    session.writer_mut().flush()?;
+                }
+
+                if tick.is_multiple_of(u64::from(config.target_fps)) {
+                    traces.record(TraceEvent::new(
+                        "frame",
+                        format!(
+                            "tick {tick}: {} changed cells, {} bytes",
+                            frame_output.changed_cells,
+                            frame_output.bytes.len()
+                        ),
+                    ));
+                }
+
+                previous_frame = current_frame;
             }
 
-            if tick.is_multiple_of(u64::from(config.target_fps)) {
-                traces.record(TraceEvent::new(
-                    "frame",
-                    format!(
-                        "tick {tick}: {} changed cells, {} bytes",
-                        frame_output.changed_cells,
-                        frame_output.bytes.len()
-                    ),
-                ));
-            }
-
-            previous_frame = current_frame;
             tick = tick.wrapping_add(1);
             next_frame_at = Instant::now() + frame_duration;
             continue;
@@ -129,20 +137,88 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
         if !event::poll(poll_timeout)? {
             continue;
         }
-        let Event::Key(key_event) = event::read()? else {
-            continue;
-        };
 
-        match key_event_to_action(key_event) {
-            EngineAction::Quit => {
-                traces.record(TraceEvent::new("input", "quit action received"));
-                break;
+        match event::read()? {
+            Event::Key(key_event) => match key_event_to_action(key_event) {
+                EngineAction::Quit => {
+                    traces.record(TraceEvent::new("input", "quit action received"));
+                    break;
+                }
+                EngineAction::None => {}
+            },
+            Event::Resize(width, height) => {
+                let new_size = TerminalSize::new(width, height);
+                match resize_decision(new_size) {
+                    ResizeDecision::Redraw { size: new_size } => {
+                        size = new_size;
+                        previous_frame = redraw_resized_frame(
+                            &mut session,
+                            size,
+                            tick,
+                            &scene_activity,
+                            traces,
+                        )?;
+                        rendering_suspended = false;
+                        next_frame_at = Instant::now() + frame_duration;
+                    }
+                    ResizeDecision::Suspend { actual, minimum } => {
+                        render_resize_suspended_message(&mut session, actual, minimum, traces)?;
+                        rendering_suspended = true;
+                    }
+                }
             }
-            EngineAction::None => {}
+            _ => {}
         }
     }
 
     session.finish()?;
+
+    Ok(())
+}
+
+fn redraw_resized_frame<W: Write>(
+    session: &mut TerminalSession<W>,
+    size: TerminalSize,
+    tick: u64,
+    scene_activity: &SceneActivity,
+    traces: &mut TraceCollector,
+) -> Result<Framebuffer, Box<dyn std::error::Error>> {
+    let blank = Framebuffer::new(size.width, size.height, Cell::blank())?;
+    let current =
+        build_landscape_frame_with_activity(size.width, size.height, tick, scene_activity)?;
+    let frame_output = AnsiDiffEncoder::new().encode_diff(&blank, &current)?;
+
+    // A resize invalidates the terminal's existing cell grid, so the next draw
+    // must clear and repaint the full framebuffer instead of applying a diff
+    // against the old dimensions.
+    session.writer_mut().write_all(clear_screen())?;
+    session.writer_mut().write_all(&frame_output.bytes)?;
+    session.writer_mut().flush()?;
+    traces.record(TraceEvent::new(
+        "terminal.resize",
+        format!(
+            "redrew {}x{} frame with {} changed cells",
+            size.width, size.height, frame_output.changed_cells
+        ),
+    ));
+
+    Ok(current)
+}
+
+fn render_resize_suspended_message<W: Write>(
+    session: &mut TerminalSession<W>,
+    actual: TerminalSize,
+    minimum: TerminalSize,
+    traces: &mut TraceCollector,
+) -> io::Result<()> {
+    let message = format!(
+        "terminal too small: got {}x{}, minimum is {}x{}",
+        actual.width, actual.height, minimum.width, minimum.height
+    );
+    session.writer_mut().write_all(clear_screen())?;
+    session.writer_mut().write_all(message.as_bytes())?;
+    session.writer_mut().flush()?;
+    traces.record(TraceEvent::new("terminal.resize", message));
 
     Ok(())
 }

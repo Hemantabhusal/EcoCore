@@ -8,7 +8,7 @@ use ecosystem::{
         SceneActivity, build_landscape_frame, build_landscape_frame_with_activity,
         build_static_landscape_frame,
     },
-    runtime::{RuntimeConfig, target_frame_duration},
+    runtime::{ResizeDecision, RuntimeConfig, resize_decision, target_frame_duration},
     terminal::{
         AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize,
         validate_terminal_environment,
@@ -281,6 +281,31 @@ fn active_cpu_creatures_drift_one_cell_without_leaving_bounds() {
     assert_eq!(
         second_frame.get(13, 5).expect("drifted creature").glyph,
         '@'
+    );
+}
+
+#[test]
+fn resize_decision_redraws_when_new_size_is_supported() {
+    let decision = resize_decision(TerminalSize::new(120, 40));
+
+    assert_eq!(
+        decision,
+        ResizeDecision::Redraw {
+            size: TerminalSize::new(120, 40)
+        }
+    );
+}
+
+#[test]
+fn resize_decision_suspends_when_new_size_is_too_small() {
+    let decision = resize_decision(TerminalSize::new(60, 20));
+
+    assert_eq!(
+        decision,
+        ResizeDecision::Suspend {
+            actual: TerminalSize::new(60, 20),
+            minimum: TerminalSize::new(80, 24)
+        }
     );
 }
 
