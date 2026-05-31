@@ -1,4 +1,9 @@
-use std::{error::Error, fmt, fmt::Write as _};
+use std::{
+    error::Error,
+    fmt,
+    fmt::Write as _,
+    io::{self, Write},
+};
 
 use crate::framebuffer::{Cell, Color, Framebuffer, FramebufferError};
 
@@ -71,6 +76,100 @@ pub fn validate_terminal_environment(
     }
 
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TerminalSessionOptions {
+    pub enable_raw_mode: bool,
+}
+
+impl Default for TerminalSessionOptions {
+    fn default() -> Self {
+        Self {
+            enable_raw_mode: true,
+        }
+    }
+}
+
+pub struct TerminalSession<W: Write> {
+    writer: W,
+    raw_mode_enabled: bool,
+    active: bool,
+}
+
+impl<W: Write> TerminalSession<W> {
+    pub fn start(mut writer: W, options: TerminalSessionOptions) -> io::Result<Self> {
+        if options.enable_raw_mode {
+            crossterm::terminal::enable_raw_mode()?;
+        }
+
+        writer.write_all(enter_alternate_screen())?;
+        writer.write_all(hide_cursor())?;
+        writer.write_all(clear_screen())?;
+        writer.flush()?;
+
+        Ok(Self {
+            writer,
+            raw_mode_enabled: options.enable_raw_mode,
+            active: true,
+        })
+    }
+
+    pub fn writer_mut(&mut self) -> &mut W {
+        &mut self.writer
+    }
+
+    pub fn finish(mut self) -> io::Result<()> {
+        self.restore()
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        if !self.active {
+            return Ok(());
+        }
+
+        self.writer.write_all(reset_style())?;
+        self.writer.write_all(show_cursor())?;
+        self.writer.write_all(leave_alternate_screen())?;
+        self.writer.flush()?;
+
+        if self.raw_mode_enabled {
+            crossterm::terminal::disable_raw_mode()?;
+        }
+
+        self.active = false;
+        Ok(())
+    }
+}
+
+impl<W: Write> Drop for TerminalSession<W> {
+    fn drop(&mut self) {
+        let _ = self.restore();
+    }
+}
+
+pub const fn enter_alternate_screen() -> &'static [u8] {
+    b"\x1b[?1049h"
+}
+
+pub const fn leave_alternate_screen() -> &'static [u8] {
+    b"\x1b[?1049l"
+}
+
+pub const fn hide_cursor() -> &'static [u8] {
+    b"\x1b[?25l"
+}
+
+pub const fn show_cursor() -> &'static [u8] {
+    b"\x1b[?25h"
+}
+
+pub const fn clear_screen() -> &'static [u8] {
+    b"\x1b[2J\x1b[H"
+}
+
+pub const fn reset_style() -> &'static [u8] {
+    b"\x1b[0m"
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

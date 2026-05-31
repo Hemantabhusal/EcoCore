@@ -3,7 +3,10 @@ use ecosystem::{
     diagnostics::{TraceCollector, TraceEvent},
     framebuffer::{Cell, Color, Framebuffer},
     render::build_static_landscape_frame,
-    terminal::{AnsiDiffEncoder, TerminalSize, validate_terminal_environment},
+    terminal::{
+        AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize,
+        validate_terminal_environment,
+    },
 };
 
 #[test]
@@ -141,4 +144,42 @@ fn app_initial_frame_uses_terminal_size_for_rendered_frame() {
             .iter()
             .any(|event| event.message.contains("encoded 1920 changed cells"))
     );
+}
+
+#[test]
+fn terminal_session_start_enters_alternate_screen_and_hides_cursor() {
+    let mut output = Vec::new();
+
+    {
+        let _session = TerminalSession::start(
+            &mut output,
+            TerminalSessionOptions {
+                enable_raw_mode: false,
+            },
+        )
+        .expect("memory-backed session starts");
+    }
+
+    let encoded = String::from_utf8(output).expect("terminal controls are utf8");
+    assert!(encoded.starts_with("\u{1b}[?1049h\u{1b}[?25l\u{1b}[2J\u{1b}[H"));
+}
+
+#[test]
+fn terminal_session_drop_restores_cursor_style_and_main_screen() {
+    let mut output = Vec::new();
+
+    {
+        let mut session = TerminalSession::start(
+            &mut output,
+            TerminalSessionOptions {
+                enable_raw_mode: false,
+            },
+        )
+        .expect("memory-backed session starts");
+        session.writer_mut().extend_from_slice(b"frame bytes");
+    }
+
+    let encoded = String::from_utf8(output).expect("terminal controls are utf8");
+    assert!(encoded.contains("frame bytes"));
+    assert!(encoded.ends_with("\u{1b}[0m\u{1b}[?25h\u{1b}[?1049l"));
 }

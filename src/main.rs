@@ -6,7 +6,7 @@ use std::{
 use ecosystem::{
     app::{StartupEnvironment, render_initial_frame},
     diagnostics::{TraceCollector, TraceEvent},
-    terminal::current_terminal_size,
+    terminal::{TerminalSession, TerminalSessionOptions, current_terminal_size},
 };
 
 fn main() -> ExitCode {
@@ -39,10 +39,11 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
         format!("writing {} bytes", encoded.bytes.len()),
     ));
 
-    let mut stdout = io::stdout().lock();
-    stdout.write_all(&encoded.bytes)?;
-    stdout.write_all(b"\n")?;
-    stdout.flush()?;
+    let stdout = io::stdout();
+    let mut session = TerminalSession::start(stdout.lock(), TerminalSessionOptions::default())?;
+    session.writer_mut().write_all(&encoded.bytes)?;
+    session.writer_mut().flush()?;
+    session.finish()?;
 
     Ok(())
 }
