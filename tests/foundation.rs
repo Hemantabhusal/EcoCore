@@ -1,8 +1,9 @@
 use ecosystem::{
+    app::{StartupEnvironment, render_initial_frame},
     diagnostics::{TraceCollector, TraceEvent},
     framebuffer::{Cell, Color, Framebuffer},
     render::build_static_landscape_frame,
-    terminal::AnsiDiffEncoder,
+    terminal::{AnsiDiffEncoder, TerminalSize, validate_terminal_environment},
 };
 
 #[test]
@@ -70,4 +71,74 @@ fn static_landscape_frame_contains_ground_water_and_a_visible_creature() {
     assert_eq!(frame.get(0, 7).expect("ground cell").glyph, '.');
     assert_eq!(frame.get(10, 6).expect("water cell").glyph, '~');
     assert_eq!(frame.get(10, 4).expect("creature cell").glyph, 'o');
+}
+
+#[test]
+fn terminal_validation_rejects_non_tty_stdout() {
+    let error = validate_terminal_environment(false, TerminalSize::new(120, 40))
+        .expect_err("non-tty stdout must be rejected");
+
+    assert_eq!(
+        error.to_string(),
+        "stdout is not a terminal; run ecosystem directly in an interactive terminal"
+    );
+}
+
+#[test]
+fn terminal_validation_rejects_small_terminal() {
+    let error = validate_terminal_environment(true, TerminalSize::new(79, 24))
+        .expect_err("terminal width below minimum must be rejected");
+
+    assert_eq!(
+        error.to_string(),
+        "terminal is too small: got 79x24, minimum is 80x24"
+    );
+}
+
+#[test]
+fn terminal_validation_accepts_minimum_supported_size() {
+    validate_terminal_environment(true, TerminalSize::new(80, 24))
+        .expect("minimum terminal size is supported");
+}
+
+#[test]
+fn terminal_size_converts_from_terminal_probe_tuple() {
+    let size = TerminalSize::from((132, 43));
+
+    assert_eq!(size.width, 132);
+    assert_eq!(size.height, 43);
+}
+
+#[test]
+fn app_initial_frame_returns_user_facing_startup_error_for_non_tty() {
+    let mut traces = TraceCollector::enabled();
+    let error = render_initial_frame(
+        StartupEnvironment::new(false, TerminalSize::new(120, 40)),
+        &mut traces,
+    )
+    .expect_err("non-tty startup must fail before rendering");
+
+    assert_eq!(
+        error.to_string(),
+        "stdout is not a terminal; run ecosystem directly in an interactive terminal"
+    );
+    assert_eq!(traces.snapshot()[0].target, "startup");
+}
+
+#[test]
+fn app_initial_frame_uses_terminal_size_for_rendered_frame() {
+    let mut traces = TraceCollector::enabled();
+    let output = render_initial_frame(
+        StartupEnvironment::new(true, TerminalSize::new(80, 24)),
+        &mut traces,
+    )
+    .expect("valid startup renders a frame");
+
+    assert_eq!(output.changed_cells, 80 * 24);
+    assert!(
+        traces
+            .snapshot()
+            .iter()
+            .any(|event| event.message.contains("encoded 1920 changed cells"))
+    );
 }

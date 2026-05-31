@@ -1,11 +1,76 @@
-use std::fmt::Write as _;
+use std::{error::Error, fmt, fmt::Write as _};
 
 use crate::framebuffer::{Cell, Color, Framebuffer, FramebufferError};
+
+pub const MIN_TERMINAL_WIDTH: u16 = 80;
+pub const MIN_TERMINAL_HEIGHT: u16 = 24;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TerminalSize {
     pub width: u16,
     pub height: u16,
+}
+
+impl TerminalSize {
+    pub const fn new(width: u16, height: u16) -> Self {
+        Self { width, height }
+    }
+}
+
+impl From<(u16, u16)> for TerminalSize {
+    fn from((width, height): (u16, u16)) -> Self {
+        Self::new(width, height)
+    }
+}
+
+pub fn current_terminal_size() -> std::io::Result<TerminalSize> {
+    crossterm::terminal::size().map(TerminalSize::from)
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TerminalValidationError {
+    StdoutNotTerminal,
+    TooSmall {
+        actual: TerminalSize,
+        minimum: TerminalSize,
+    },
+}
+
+impl fmt::Display for TerminalValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StdoutNotTerminal => write!(
+                f,
+                "stdout is not a terminal; run ecosystem directly in an interactive terminal"
+            ),
+            Self::TooSmall { actual, minimum } => write!(
+                f,
+                "terminal is too small: got {}x{}, minimum is {}x{}",
+                actual.width, actual.height, minimum.width, minimum.height
+            ),
+        }
+    }
+}
+
+impl Error for TerminalValidationError {}
+
+pub fn validate_terminal_environment(
+    stdout_is_terminal: bool,
+    size: TerminalSize,
+) -> Result<(), TerminalValidationError> {
+    if !stdout_is_terminal {
+        return Err(TerminalValidationError::StdoutNotTerminal);
+    }
+
+    let minimum = TerminalSize::new(MIN_TERMINAL_WIDTH, MIN_TERMINAL_HEIGHT);
+    if size.width < minimum.width || size.height < minimum.height {
+        return Err(TerminalValidationError::TooSmall {
+            actual: size,
+            minimum,
+        });
+    }
+
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

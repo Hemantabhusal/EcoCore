@@ -1,37 +1,42 @@
 use std::{
-    error::Error,
-    io::{self, Write},
+    io::{self, IsTerminal, Write},
+    process::ExitCode,
 };
 
 use ecosystem::{
+    app::{StartupEnvironment, render_initial_frame},
     diagnostics::{TraceCollector, TraceEvent},
-    framebuffer::{Cell, Framebuffer},
-    render::build_static_landscape_frame,
-    terminal::AnsiDiffEncoder,
+    terminal::current_terminal_size,
 };
 
-const MVP_WIDTH: u16 = 80;
-const MVP_HEIGHT: u16 = 24;
-
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> ExitCode {
     let mut traces = if std::env::var_os("ECOSYSTEM_TRACE").is_some() {
         TraceCollector::enabled()
     } else {
         TraceCollector::disabled()
     };
 
-    traces.record(TraceEvent::new(
-        "startup",
-        "building static Phase 1 MVP frame",
-    ));
+    let result = run_once(&mut traces);
+    emit_traces(&traces);
 
-    let previous = Framebuffer::new(MVP_WIDTH, MVP_HEIGHT, Cell::blank())?;
-    let current = build_static_landscape_frame(MVP_WIDTH, MVP_HEIGHT)?;
-    let encoded = AnsiDiffEncoder::new().encode_diff(&previous, &current)?;
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("ecosystem startup failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
 
+fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error>> {
+    let size = current_terminal_size()?;
+    let encoded = render_initial_frame(
+        StartupEnvironment::new(io::stdout().is_terminal(), size),
+        traces,
+    )?;
     traces.record(TraceEvent::new(
-        "render",
-        format!("encoded {} changed cells", encoded.changed_cells),
+        "stdout",
+        format!("writing {} bytes", encoded.bytes.len()),
     ));
 
     let mut stdout = io::stdout().lock();
@@ -39,6 +44,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     stdout.write_all(b"\n")?;
     stdout.flush()?;
 
+    Ok(())
+}
+
+fn emit_traces(traces: &TraceCollector) {
     for event in traces.snapshot() {
         eprintln!(
             "[{:>6}ms] {}: {}",
@@ -47,6 +56,4 @@ fn main() -> Result<(), Box<dyn Error>> {
             event.message
         );
     }
-
-    Ok(())
 }
