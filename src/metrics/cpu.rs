@@ -1,4 +1,8 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, fs, io};
+
+use crate::diagnostics::{TraceCollector, TraceEvent};
+
+const PROC_STAT_PATH: &str = "/proc/stat";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CpuSample {
@@ -40,6 +44,57 @@ pub struct CpuUsage {
     pub per_core: Vec<f32>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum CpuSamplerStatus {
+    Primed { core_count: usize },
+    Usage(CpuUsage),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CpuSampler {
+    previous: Option<CpuSample>,
+}
+
+impl CpuSampler {
+    pub fn sample_from_system(
+        &mut self,
+        traces: &mut TraceCollector,
+    ) -> Result<CpuSamplerStatus, CpuSamplerError> {
+        let proc_stat = fs::read_to_string(PROC_STAT_PATH)?;
+        self.sample_from_proc_stat(&proc_stat, traces)
+    }
+
+    pub fn sample_from_proc_stat(
+        &mut self,
+        input: &str,
+        traces: &mut TraceCollector,
+    ) -> Result<CpuSamplerStatus, CpuSamplerError> {
+        let current = parse_proc_stat(input)?;
+        if self.previous.is_none() {
+            let core_count = current.cores.len();
+            self.previous = Some(current);
+            traces.record(TraceEvent::new(
+                "metrics.cpu",
+                format!("primed with {core_count} cores"),
+            ));
+            return Ok(CpuSamplerStatus::Primed { core_count });
+        }
+
+        let previous = self
+            .previous
+            .as_ref()
+            .expect("previous sample exists after priming check");
+        let usage = calculate_cpu_usage(previous, &current)?;
+        traces.record(TraceEvent::new(
+            "metrics.cpu",
+            format!("sampled usage for {} cores", usage.per_core.len()),
+        ));
+        self.previous = Some(current);
+
+        Ok(CpuSamplerStatus::Usage(usage))
+    }
+}
+
 pub fn parse_proc_stat(input: &str) -> Result<CpuSample, CpuParseError> {
     let mut cores = Vec::new();
 
@@ -48,6 +103,7 @@ pub fn parse_proc_stat(input: &str) -> Result<CpuSample, CpuParseError> {
             continue;
         };
 
+        // The aggregate line starts with "cpu " and must not become a fake core.
         if !rest.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
             continue;
         }
@@ -124,6 +180,9 @@ pub fn calculate_cpu_usage(
 
         let previous_idle = previous_core.idle_total();
         let current_idle = current_core.idle_total();
+        // Linux reports CPU usage as monotonically increasing counters. Usage is
+        // therefore a rate between two samples, with idle+iowait treated as
+        // non-busy time so sleeping cores naturally normalize to 0.0.
         let idle_delta = current_idle.saturating_sub(previous_idle);
         let busy_delta = total_delta.saturating_sub(idle_delta);
         let usage = (busy_delta as f32 / total_delta as f32).clamp(0.0, 1.0);
@@ -175,3 +234,48 @@ impl fmt::Display for CpuUsageError {
 }
 
 impl Error for CpuUsageError {}
+
+#[derive(Debug)]
+pub enum CpuSamplerError {
+    Io(io::Error),
+    Parse(CpuParseError),
+    Usage(CpuUsageError),
+}
+
+impl fmt::Display for CpuSamplerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(error) => write!(f, "failed to read {PROC_STAT_PATH}: {error}"),
+            Self::Parse(error) => error.fmt(f),
+            Self::Usage(error) => error.fmt(f),
+        }
+    }
+}
+
+impl Error for CpuSamplerError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            Self::Parse(error) => Some(error),
+            Self::Usage(error) => Some(error),
+        }
+    }
+}
+
+impl From<io::Error> for CpuSamplerError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl From<CpuParseError> for CpuSamplerError {
+    fn from(error: CpuParseError) -> Self {
+        Self::Parse(error)
+    }
+}
+
+impl From<CpuUsageError> for CpuSamplerError {
+    fn from(error: CpuUsageError) -> Self {
+        Self::Usage(error)
+    }
+}

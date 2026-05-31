@@ -3,6 +3,7 @@ use std::time::Duration;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RuntimeConfig {
     pub target_fps: u16,
+    pub metrics_sample_interval: Duration,
 }
 
 impl RuntimeConfig {
@@ -13,7 +14,10 @@ impl RuntimeConfig {
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
-        Self { target_fps: 30 }
+        Self {
+            target_fps: 30,
+            metrics_sample_interval: Duration::from_millis(500),
+        }
     }
 }
 

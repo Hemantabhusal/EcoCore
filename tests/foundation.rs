@@ -4,7 +4,10 @@ use ecosystem::{
     diagnostics::{TraceCollector, TraceEvent},
     framebuffer::{Cell, Color, Framebuffer},
     input::{EngineAction, key_event_to_action},
-    render::{build_landscape_frame, build_static_landscape_frame},
+    render::{
+        SceneActivity, build_landscape_frame, build_landscape_frame_with_activity,
+        build_static_landscape_frame,
+    },
     runtime::{RuntimeConfig, target_frame_duration},
     terminal::{
         AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize,
@@ -213,6 +216,7 @@ fn runtime_default_targets_thirty_frames_per_second() {
 
     assert_eq!(config.target_fps, 30);
     assert_eq!(config.frame_duration(), target_frame_duration(30));
+    assert_eq!(config.metrics_sample_interval.as_millis(), 500);
 }
 
 #[test]
@@ -229,4 +233,23 @@ fn animated_landscape_changes_incrementally_between_ticks() {
         output.changed_cells < usize::from(previous.width()) * usize::from(previous.height()),
         "animation should not redraw the whole frame"
     );
+}
+
+#[test]
+fn landscape_maps_cpu_activity_to_stable_creature_intensity() {
+    let activity = SceneActivity::from_core_loads(vec![0.10, 0.50, 0.95]);
+
+    let frame =
+        build_landscape_frame_with_activity(32, 10, 0, &activity).expect("valid active frame");
+
+    assert_eq!(frame.get(8, 5).expect("idle creature").glyph, 'o');
+    assert_eq!(frame.get(16, 5).expect("active creature").glyph, 'O');
+    assert_eq!(frame.get(24, 5).expect("busy creature").glyph, '@');
+}
+
+#[test]
+fn scene_activity_clamps_core_loads_to_normalized_range() {
+    let activity = SceneActivity::from_core_loads(vec![-0.25, 1.40]);
+
+    assert_eq!(activity.core_loads(), &[0.0, 1.0]);
 }

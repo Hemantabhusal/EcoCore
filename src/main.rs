@@ -9,7 +9,8 @@ use ecosystem::{
     app::{StartupEnvironment, render_initial_frame},
     diagnostics::{TraceCollector, TraceEvent},
     input::{EngineAction, key_event_to_action},
-    render::build_landscape_frame,
+    metrics::cpu::{CpuSampler, CpuSamplerStatus},
+    render::{SceneActivity, build_landscape_frame, build_landscape_frame_with_activity},
     runtime::RuntimeConfig,
     terminal::{AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, current_terminal_size},
 };
@@ -56,10 +57,15 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
         "entering frame loop; press q or Esc to quit",
     ));
 
+    // Keep the last rendered frame so animation frames can be emitted as ANSI
+    // diffs. This is the core performance contract for the terminal renderer.
     let mut previous_frame = build_landscape_frame(size.width, size.height, 0)?;
     let mut tick = 1_u64;
     let frame_duration = config.frame_duration();
     let mut next_frame_at = Instant::now() + frame_duration;
+    let mut cpu_sampler = CpuSampler::default();
+    let mut scene_activity = SceneActivity::default();
+    let mut next_metrics_at = Instant::now();
     traces.record(TraceEvent::new(
         "frame",
         format!("targeting {} fps", config.target_fps),
@@ -67,8 +73,31 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
 
     loop {
         let now = Instant::now();
+        if now >= next_metrics_at {
+            // Metrics are sampled below the frame rate so `/proc/stat` reads do
+            // not become part of the hot render path.
+            match cpu_sampler.sample_from_system(traces) {
+                Ok(CpuSamplerStatus::Primed { .. }) => {}
+                Ok(CpuSamplerStatus::Usage(usage)) => {
+                    scene_activity = SceneActivity::from_core_loads(usage.per_core);
+                }
+                Err(error) => {
+                    traces.record(TraceEvent::new(
+                        "metrics.cpu",
+                        format!("sample failed: {error}"),
+                    ));
+                }
+            }
+            next_metrics_at = now + config.metrics_sample_interval;
+        }
+
         if now >= next_frame_at {
-            let current_frame = build_landscape_frame(size.width, size.height, tick)?;
+            let current_frame = build_landscape_frame_with_activity(
+                size.width,
+                size.height,
+                tick,
+                &scene_activity,
+            )?;
             let frame_output =
                 AnsiDiffEncoder::new().encode_diff(&previous_frame, &current_frame)?;
 
@@ -77,7 +106,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                 session.writer_mut().flush()?;
             }
 
-            if tick % u64::from(config.target_fps) == 0 {
+            if tick.is_multiple_of(u64::from(config.target_fps)) {
                 traces.record(TraceEvent::new(
                     "frame",
                     format!(
@@ -94,6 +123,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             continue;
         }
 
+        // Poll only until the next frame deadline so input remains responsive
+        // without waking the process unnecessarily between animation ticks.
         let poll_timeout = (next_frame_at - now).min(INPUT_POLL_INTERVAL);
         if !event::poll(poll_timeout)? {
             continue;

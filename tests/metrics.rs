@@ -1,4 +1,7 @@
-use ecosystem::metrics::cpu::{calculate_cpu_usage, parse_proc_stat};
+use ecosystem::{
+    diagnostics::TraceCollector,
+    metrics::cpu::{CpuSampler, CpuSamplerStatus, calculate_cpu_usage, parse_proc_stat},
+};
 
 const PROC_STAT_PREVIOUS: &str = "\
 cpu  100 0 50 1000 10 0 0 0 0 0
@@ -72,5 +75,49 @@ fn proc_stat_parser_reports_malformed_core_lines() {
         error
             .to_string()
             .contains("invalid CPU counter 'nope' on line 1")
+    );
+}
+
+#[test]
+fn cpu_sampler_stores_first_sample_without_emitting_usage() {
+    let mut sampler = CpuSampler::default();
+    let mut traces = TraceCollector::enabled();
+
+    let status = sampler
+        .sample_from_proc_stat(PROC_STAT_PREVIOUS, &mut traces)
+        .expect("first sample parses");
+
+    assert_eq!(status, CpuSamplerStatus::Primed { core_count: 2 });
+    assert!(
+        traces
+            .snapshot()
+            .iter()
+            .any(|event| event.message.contains("primed with 2 cores"))
+    );
+}
+
+#[test]
+fn cpu_sampler_emits_usage_after_second_sample() {
+    let mut sampler = CpuSampler::default();
+    let mut traces = TraceCollector::enabled();
+
+    sampler
+        .sample_from_proc_stat(PROC_STAT_PREVIOUS, &mut traces)
+        .expect("first sample parses");
+    let status = sampler
+        .sample_from_proc_stat(PROC_STAT_CURRENT, &mut traces)
+        .expect("second sample parses");
+
+    let CpuSamplerStatus::Usage(usage) = status else {
+        panic!("expected usage status");
+    };
+    assert_eq!(usage.per_core.len(), 2);
+    assert!((usage.per_core[0] - 0.40).abs() < f32::EPSILON);
+    assert!((usage.per_core[1] - 0.50).abs() < f32::EPSILON);
+    assert!(
+        traces
+            .snapshot()
+            .iter()
+            .any(|event| event.message.contains("sampled usage for 2 cores"))
     );
 }

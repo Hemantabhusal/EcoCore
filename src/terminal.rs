@@ -144,6 +144,8 @@ impl<W: Write> TerminalSession<W> {
 
 impl<W: Write> Drop for TerminalSession<W> {
     fn drop(&mut self) {
+        // Terminal restoration is best-effort during unwinding. Callers that
+        // need to surface I/O errors should use `finish()` before dropping.
         let _ = self.restore();
     }
 }
