@@ -16,6 +16,7 @@ use ecosystem::{
     metrics::network::{NetworkSampler, NetworkSamplerStatus},
     render::{SceneActivity, build_landscape_frame, build_landscape_frame_with_activity},
     runtime::{FrameStats, ResizeDebouncer, ResizeDecision, RuntimeConfig},
+    simulation::ActivitySmoother,
     terminal::{
         AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen,
         current_terminal_size,
@@ -23,6 +24,7 @@ use ecosystem::{
 };
 
 const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const ACTIVITY_SMOOTHING_RESPONSE: f32 = 0.25;
 
 fn main() -> ExitCode {
     let mut traces = if std::env::var_os("ECOSYSTEM_TRACE").is_some() {
@@ -76,6 +78,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     let mut disk_sampler = DiskSampler::default();
     let mut last_network_sample_at = None;
     let mut last_disk_sample_at = None;
+    let mut target_activity = SceneActivity::default();
+    let mut activity_smoother = ActivitySmoother::new(ACTIVITY_SMOOTHING_RESPONSE);
     let mut scene_activity = SceneActivity::default();
     let mut next_metrics_at = Instant::now();
     let mut rendering_suspended = false;
@@ -94,7 +98,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             match cpu_sampler.sample_from_system(traces) {
                 Ok(CpuSamplerStatus::Primed { .. }) => {}
                 Ok(CpuSamplerStatus::Usage(usage)) => {
-                    scene_activity = scene_activity.with_core_loads(usage.per_core);
+                    target_activity = target_activity.with_core_loads(usage.per_core);
                 }
                 Err(error) => {
                     traces.record(TraceEvent::new(
@@ -105,7 +109,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             }
             match memory_sampler.sample_from_system(traces) {
                 Ok(pressure) => {
-                    scene_activity = scene_activity.with_memory_pressure(pressure.value);
+                    target_activity = target_activity.with_memory_pressure(pressure.value);
                 }
                 Err(error) => {
                     traces.record(TraceEvent::new(
@@ -122,7 +126,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     last_network_sample_at = Some(now);
                 }
                 Ok(NetworkSamplerStatus::Flow(flow)) => {
-                    scene_activity = scene_activity.with_network_flow(flow.download, flow.upload);
+                    target_activity = target_activity.with_network_flow(flow.download, flow.upload);
                     last_network_sample_at = Some(now);
                 }
                 Err(error) => {
@@ -140,8 +144,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     last_disk_sample_at = Some(now);
                 }
                 Ok(DiskSamplerStatus::Activity(activity)) => {
-                    scene_activity =
-                        scene_activity.with_disk_activity(activity.read, activity.write);
+                    target_activity =
+                        target_activity.with_disk_activity(activity.read, activity.write);
                     last_disk_sample_at = Some(now);
                 }
                 Err(error) => {
@@ -173,6 +177,9 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
 
         if now >= next_frame_at {
             if !rendering_suspended && resize_debouncer.ready_at().is_none() {
+                // Metrics arrive at a lower cadence than frames. Smoothing here
+                // keeps the world responsive without snapping every sample tick.
+                scene_activity = activity_smoother.step_towards(&target_activity);
                 let current_frame = build_landscape_frame_with_activity(
                     size.width,
                     size.height,

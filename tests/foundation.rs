@@ -14,6 +14,7 @@ use ecosystem::{
         FrameStats, ResizeDebouncer, ResizeDecision, RuntimeConfig, resize_decision,
         target_frame_duration,
     },
+    simulation::ActivitySmoother,
     terminal::{
         AnsiDiffEncoder, ColorCapability, TerminalColorEnvironment, TerminalSession,
         TerminalSessionOptions, TerminalSize, detect_color_capability,
@@ -366,6 +367,42 @@ fn landscape_maps_disk_activity_to_bounded_weather() {
     assert_eq!(count_glyphs_on_row(&read_frame, 2, ','), 5);
     assert_eq!(count_glyphs_on_row(&write_frame, 2, '*'), 5);
     assert_eq!(count_glyphs_on_row(&mixed_frame, 2, '#'), 5);
+}
+
+#[test]
+fn activity_smoother_moves_world_signals_toward_target_without_snapping() {
+    let target = SceneActivity::from_core_loads(vec![1.0, 0.5])
+        .with_memory_pressure(1.0)
+        .with_network_flow(0.8, 0.2)
+        .with_disk_activity(0.6, 0.4);
+    let mut smoother = ActivitySmoother::new(0.25);
+
+    let first = smoother.step_towards(&target);
+
+    assert_eq!(first.core_loads(), &[0.25, 0.125]);
+    assert!((first.memory_pressure() - 0.25).abs() < f32::EPSILON);
+    assert!((first.network_download() - 0.20).abs() < f32::EPSILON);
+    assert!((first.network_upload() - 0.05).abs() < f32::EPSILON);
+    assert!((first.disk_read() - 0.15).abs() < f32::EPSILON);
+    assert!((first.disk_write() - 0.10).abs() < f32::EPSILON);
+
+    let second = smoother.step_towards(&target);
+
+    assert!((second.core_loads()[0] - 0.4375).abs() < f32::EPSILON);
+    assert!((second.memory_pressure() - 0.4375).abs() < f32::EPSILON);
+}
+
+#[test]
+fn activity_smoother_clamps_response_to_valid_range() {
+    let target = SceneActivity::from_core_loads(vec![0.8])
+        .with_memory_pressure(0.6)
+        .with_network_flow(0.4, 0.2)
+        .with_disk_activity(0.3, 0.1);
+    let mut smoother = ActivitySmoother::new(4.0);
+
+    let current = smoother.step_towards(&target);
+
+    assert_eq!(current, target);
 }
 
 #[test]

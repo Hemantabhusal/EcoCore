@@ -5,4 +5,5 @@ pub mod input;
 pub mod metrics;
 pub mod render;
 pub mod runtime;
+pub mod simulation;
 pub mod terminal;
