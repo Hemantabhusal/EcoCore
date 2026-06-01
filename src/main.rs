@@ -88,7 +88,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             match cpu_sampler.sample_from_system(traces) {
                 Ok(CpuSamplerStatus::Primed { .. }) => {}
                 Ok(CpuSamplerStatus::Usage(usage)) => {
-                    scene_activity = SceneActivity::from_core_loads(usage.per_core);
+                    scene_activity = scene_activity.with_core_loads(usage.per_core);
                 }
                 Err(error) => {
                     traces.record(TraceEvent::new(
@@ -97,11 +97,16 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     ));
                 }
             }
-            if let Err(error) = memory_sampler.sample_from_system(traces) {
-                traces.record(TraceEvent::new(
-                    "metrics.memory",
-                    format!("sample failed: {error}"),
-                ));
+            match memory_sampler.sample_from_system(traces) {
+                Ok(pressure) => {
+                    scene_activity = scene_activity.with_memory_pressure(pressure.value);
+                }
+                Err(error) => {
+                    traces.record(TraceEvent::new(
+                        "metrics.memory",
+                        format!("sample failed: {error}"),
+                    ));
+                }
             }
             next_metrics_at = now + config.metrics_sample_interval;
         }

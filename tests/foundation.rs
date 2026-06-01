@@ -306,6 +306,33 @@ fn scene_activity_clamps_core_loads_to_normalized_range() {
 }
 
 #[test]
+fn scene_activity_clamps_memory_pressure_to_normalized_range() {
+    let activity = SceneActivity::default().with_memory_pressure(1.40);
+
+    assert_eq!(activity.memory_pressure(), 1.0);
+
+    let activity = SceneActivity::default().with_memory_pressure(-0.25);
+
+    assert_eq!(activity.memory_pressure(), 0.0);
+}
+
+#[test]
+fn landscape_maps_memory_pressure_to_bounded_vegetation_density() {
+    let calm_activity = SceneActivity::default().with_memory_pressure(0.0);
+    let pressured_activity = SceneActivity::default().with_memory_pressure(1.0);
+
+    let calm_frame =
+        build_landscape_frame_with_activity(20, 10, 0, &calm_activity).expect("valid calm frame");
+    let pressured_frame = build_landscape_frame_with_activity(20, 10, 0, &pressured_activity)
+        .expect("valid pressured frame");
+
+    assert_eq!(count_glyphs_on_row(&calm_frame, 7, '^'), 0);
+    assert_eq!(count_glyphs_on_row(&pressured_frame, 7, '^'), 5);
+    assert_eq!(pressured_frame.get(10, 8).expect("water cell").glyph, '~');
+    assert_eq!(pressured_frame.get(10, 9).expect("ground cell").glyph, '.');
+}
+
+#[test]
 fn landscape_wraps_dense_cpu_activity_into_readable_lanes() {
     let activity = SceneActivity::from_core_loads(vec![0.50; 8]);
 

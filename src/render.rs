@@ -5,30 +5,40 @@ const GROUND: Color = Color::rgb(35, 50, 35);
 const WATER: Color = Color::rgb(35, 120, 210);
 const CREATURE: Color = Color::rgb(255, 180, 80);
 const BUSY_CREATURE: Color = Color::rgb(255, 95, 90);
+const VEGETATION: Color = Color::rgb(95, 190, 105);
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SceneActivity {
     core_loads: Vec<f32>,
+    memory_pressure: f32,
 }
 
 impl SceneActivity {
     pub fn from_core_loads(core_loads: Vec<f32>) -> Self {
+        Self::default().with_core_loads(core_loads)
+    }
+
+    pub fn with_core_loads(mut self, core_loads: Vec<f32>) -> Self {
         let core_loads = core_loads
             .into_iter()
-            .map(|load| {
-                if load.is_finite() {
-                    load.clamp(0.0, 1.0)
-                } else {
-                    0.0
-                }
-            })
+            .map(normalize_unit_interval)
             .collect();
 
-        Self { core_loads }
+        self.core_loads = core_loads;
+        self
+    }
+
+    pub fn with_memory_pressure(mut self, memory_pressure: f32) -> Self {
+        self.memory_pressure = normalize_unit_interval(memory_pressure);
+        self
     }
 
     pub fn core_loads(&self) -> &[f32] {
         &self.core_loads
+    }
+
+    pub fn memory_pressure(&self) -> f32 {
+        self.memory_pressure
     }
 }
 
@@ -78,9 +88,36 @@ pub fn build_landscape_frame_with_activity(
         frame.set(x, water_y, Cell::new(water_glyph, WATER, SKY))?;
     }
 
+    draw_vegetation(&mut frame, activity)?;
     draw_creatures(&mut frame, creature_origin_y, tick, activity)?;
 
     Ok(frame)
+}
+
+fn draw_vegetation(
+    frame: &mut Framebuffer,
+    activity: &SceneActivity,
+) -> Result<(), FramebufferError> {
+    if frame.height() < 4 || frame.width() == 0 {
+        return Ok(());
+    }
+
+    // Memory pressure is mapped to sparse density instead of per-cell noise so
+    // it remains readable and cheap to diff on every terminal frame.
+    let max_plants = usize::from(frame.width()).div_ceil(4).max(1);
+    let plant_count = (max_plants as f32 * activity.memory_pressure()).round() as usize;
+    let vegetation_y = frame.height() - 3;
+
+    for index in 0..plant_count {
+        let x = ((index + 1) * usize::from(frame.width())) / (plant_count + 1);
+        frame.set(
+            x.min(usize::from(frame.width().saturating_sub(1))) as u16,
+            vegetation_y,
+            Cell::new('^', VEGETATION, SKY),
+        )?;
+    }
+
+    Ok(())
 }
 
 fn draw_creatures(
@@ -183,4 +220,12 @@ fn creature_cell(load: f32, tick: u64) -> Cell {
         CREATURE
     };
     Cell::new(glyph, color, SKY)
+}
+
+fn normalize_unit_interval(value: f32) -> f32 {
+    if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
 }
