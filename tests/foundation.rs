@@ -7,7 +7,8 @@ use ecosystem::{
     framebuffer::{Cell, Color, Framebuffer},
     input::{EngineAction, key_event_to_action},
     render::{
-        build_landscape_frame, build_landscape_frame_with_activity, build_static_landscape_frame,
+        VisualTheme, build_landscape_frame, build_landscape_frame_with_activity,
+        build_static_landscape_frame,
     },
     runtime::{
         FrameStats, ResizeDebouncer, ResizeDecision, RuntimeConfig, resize_decision,
@@ -80,12 +81,19 @@ fn trace_collector_records_critical_development_events_when_enabled() {
 #[test]
 fn static_landscape_frame_contains_ground_water_and_a_visible_creature() {
     let frame = build_static_landscape_frame(20, 8).expect("valid static frame");
+    let theme = VisualTheme::default();
 
     assert_eq!(frame.width(), 20);
     assert_eq!(frame.height(), 8);
-    assert_eq!(frame.get(0, 7).expect("ground cell").glyph, '.');
-    assert_eq!(frame.get(10, 6).expect("water cell").glyph, '~');
-    assert_eq!(frame.get(10, 4).expect("creature cell").glyph, 'o');
+    assert_eq!(frame.get(0, 7).expect("ground cell").glyph, theme.ground);
+    assert_eq!(
+        frame.get(10, 6).expect("water cell").glyph,
+        theme.water_idle
+    );
+    assert_eq!(
+        frame.get(10, 4).expect("creature cell").glyph,
+        theme.creature_idle
+    );
 }
 
 #[test]
@@ -289,13 +297,38 @@ fn animated_landscape_changes_incrementally_between_ticks() {
 #[test]
 fn landscape_maps_cpu_activity_to_stable_creature_intensity() {
     let activity = SceneActivity::from_core_loads(vec![0.10, 0.50, 0.95]);
+    let theme = VisualTheme::default();
 
     let frame =
         build_landscape_frame_with_activity(32, 10, 0, &activity).expect("valid active frame");
 
-    assert_eq!(frame.get(8, 5).expect("idle creature").glyph, 'o');
-    assert_eq!(frame.get(16, 5).expect("active creature").glyph, 'O');
-    assert_eq!(frame.get(24, 5).expect("busy creature").glyph, '@');
+    assert_eq!(
+        frame.get(8, 5).expect("idle creature").glyph,
+        theme.creature_idle
+    );
+    assert_eq!(
+        frame.get(16, 5).expect("active creature").glyph,
+        theme.creature_active
+    );
+    assert_eq!(
+        frame.get(24, 5).expect("busy creature").glyph,
+        theme.creature_busy
+    );
+}
+
+#[test]
+fn default_visual_theme_replaces_phase_two_placeholder_glyphs() {
+    let theme = VisualTheme::default();
+
+    assert_eq!(theme.water_idle, '≈');
+    assert_eq!(theme.water_download, '›');
+    assert_eq!(theme.water_upload, '‹');
+    assert_eq!(theme.water_bidirectional, '≋');
+    assert_eq!(theme.weather_read, '∙');
+    assert_eq!(theme.weather_write, '✦');
+    assert_eq!(theme.weather_mixed, '✶');
+    assert_eq!(theme.vegetation_high, '♣');
+    assert_eq!(theme.creature_busy, '◆');
 }
 
 #[test]
@@ -320,16 +353,29 @@ fn scene_activity_clamps_memory_pressure_to_normalized_range() {
 fn landscape_maps_memory_pressure_to_bounded_vegetation_density() {
     let calm_activity = SceneActivity::default().with_memory_pressure(0.0);
     let pressured_activity = SceneActivity::default().with_memory_pressure(1.0);
+    let theme = VisualTheme::default();
 
     let calm_frame =
         build_landscape_frame_with_activity(20, 10, 0, &calm_activity).expect("valid calm frame");
     let pressured_frame = build_landscape_frame_with_activity(20, 10, 0, &pressured_activity)
         .expect("valid pressured frame");
 
-    assert_eq!(count_glyphs_on_row(&calm_frame, 7, '^'), 0);
-    assert_eq!(count_glyphs_on_row(&pressured_frame, 7, '^'), 5);
-    assert_eq!(pressured_frame.get(10, 8).expect("water cell").glyph, '~');
-    assert_eq!(pressured_frame.get(10, 9).expect("ground cell").glyph, '.');
+    assert_eq!(
+        count_glyphs_on_row(&calm_frame, 7, theme.vegetation_high),
+        0
+    );
+    assert_eq!(
+        count_glyphs_on_row(&pressured_frame, 7, theme.vegetation_high),
+        5
+    );
+    assert_eq!(
+        pressured_frame.get(10, 8).expect("water cell").glyph,
+        theme.water_idle
+    );
+    assert_eq!(
+        pressured_frame.get(10, 9).expect("ground cell").glyph,
+        theme.ground
+    );
 }
 
 #[test]
@@ -337,6 +383,7 @@ fn landscape_maps_network_flow_to_directional_water() {
     let download_activity = SceneActivity::default().with_network_flow(1.0, 0.0);
     let upload_activity = SceneActivity::default().with_network_flow(0.0, 1.0);
     let mixed_activity = SceneActivity::default().with_network_flow(1.0, 1.0);
+    let theme = VisualTheme::default();
 
     let download_frame = build_landscape_frame_with_activity(20, 10, 0, &download_activity)
         .expect("valid download frame");
@@ -345,9 +392,9 @@ fn landscape_maps_network_flow_to_directional_water() {
     let mixed_frame =
         build_landscape_frame_with_activity(20, 10, 0, &mixed_activity).expect("valid mixed frame");
 
-    assert!(count_glyphs_on_row(&download_frame, 8, '>') > 10);
-    assert!(count_glyphs_on_row(&upload_frame, 8, '<') > 10);
-    assert!(count_glyphs_on_row(&mixed_frame, 8, '=') > 5);
+    assert!(count_glyphs_on_row(&download_frame, 8, theme.water_download) > 10);
+    assert!(count_glyphs_on_row(&upload_frame, 8, theme.water_upload) > 10);
+    assert!(count_glyphs_on_row(&mixed_frame, 8, theme.water_bidirectional) > 5);
 }
 
 #[test]
@@ -355,6 +402,7 @@ fn landscape_maps_disk_activity_to_bounded_weather() {
     let read_activity = SceneActivity::default().with_disk_activity(1.0, 0.0);
     let write_activity = SceneActivity::default().with_disk_activity(0.0, 1.0);
     let mixed_activity = SceneActivity::default().with_disk_activity(1.0, 1.0);
+    let theme = VisualTheme::default();
 
     let read_frame =
         build_landscape_frame_with_activity(20, 10, 0, &read_activity).expect("valid read frame");
@@ -363,9 +411,9 @@ fn landscape_maps_disk_activity_to_bounded_weather() {
     let mixed_frame =
         build_landscape_frame_with_activity(20, 10, 0, &mixed_activity).expect("valid mixed frame");
 
-    assert_eq!(count_glyphs_on_row(&read_frame, 2, ','), 5);
-    assert_eq!(count_glyphs_on_row(&write_frame, 2, '*'), 5);
-    assert_eq!(count_glyphs_on_row(&mixed_frame, 2, '#'), 5);
+    assert_eq!(count_glyphs_on_row(&read_frame, 2, theme.weather_read), 5);
+    assert_eq!(count_glyphs_on_row(&write_frame, 2, theme.weather_write), 5);
+    assert_eq!(count_glyphs_on_row(&mixed_frame, 2, theme.weather_mixed), 5);
 }
 
 #[test]
@@ -410,6 +458,7 @@ fn full_ecosystem_scene_keeps_layers_readable_and_output_bounded() {
         .with_memory_pressure(1.0)
         .with_network_flow(1.0, 1.0)
         .with_disk_activity(1.0, 1.0);
+    let theme = VisualTheme::default();
 
     let previous =
         build_landscape_frame_with_activity(40, 14, 0, &activity).expect("valid previous frame");
@@ -419,11 +468,14 @@ fn full_ecosystem_scene_keeps_layers_readable_and_output_bounded() {
         .encode_diff(&previous, &current)
         .expect("matching active frames");
 
-    assert_eq!(count_glyphs_on_row(&current, 3, '#'), 10);
-    assert_eq!(count_glyphs_on_row(&current, 11, '^'), 10);
-    assert_eq!(count_glyphs_on_row(&current, 12, '='), 26);
-    assert_eq!(count_glyphs_on_row(&current, 13, '.'), 40);
-    assert_eq!(count_glyphs(&current, '@'), 8);
+    assert_eq!(count_glyphs_on_row(&current, 3, theme.weather_mixed), 10);
+    assert_eq!(count_glyphs_on_row(&current, 11, theme.vegetation_high), 10);
+    assert_eq!(
+        count_glyphs_on_row(&current, 12, theme.water_bidirectional),
+        26
+    );
+    assert_eq!(count_glyphs_on_row(&current, 13, theme.ground), 40);
+    assert_eq!(count_glyphs(&current, theme.creature_busy), 8);
     assert!(
         output.changed_cells <= 48,
         "full ecosystem animation changed {} cells",
@@ -466,12 +518,13 @@ fn full_ecosystem_scene_stays_within_phase_two_render_budget_over_multiple_frame
 #[test]
 fn landscape_wraps_dense_cpu_activity_into_readable_lanes() {
     let activity = SceneActivity::from_core_loads(vec![0.50; 8]);
+    let theme = VisualTheme::default();
 
     let frame =
         build_landscape_frame_with_activity(24, 10, 0, &activity).expect("valid dense frame");
 
-    let upper_lane = count_glyphs_on_row(&frame, 4, 'O');
-    let lower_lane = count_glyphs_on_row(&frame, 5, 'O');
+    let upper_lane = count_glyphs_on_row(&frame, 4, theme.creature_active);
+    let lower_lane = count_glyphs_on_row(&frame, 5, theme.creature_active);
 
     assert_eq!(upper_lane, 4);
     assert_eq!(lower_lane, 4);
@@ -480,16 +533,20 @@ fn landscape_wraps_dense_cpu_activity_into_readable_lanes() {
 #[test]
 fn active_cpu_creatures_drift_one_cell_without_leaving_bounds() {
     let activity = SceneActivity::from_core_loads(vec![0.95]);
+    let theme = VisualTheme::default();
 
     let first_frame =
         build_landscape_frame_with_activity(24, 10, 0, &activity).expect("valid first frame");
     let second_frame =
         build_landscape_frame_with_activity(24, 10, 1, &activity).expect("valid second frame");
 
-    assert_eq!(first_frame.get(12, 5).expect("center creature").glyph, '@');
+    assert_eq!(
+        first_frame.get(12, 5).expect("center creature").glyph,
+        theme.creature_busy
+    );
     assert_eq!(
         second_frame.get(13, 5).expect("drifted creature").glyph,
-        '@'
+        theme.creature_busy
     );
 }
 
