@@ -34,6 +34,7 @@ pub struct VisualTheme {
     pub weather_read: char,
     pub weather_write: char,
     pub weather_mixed: char,
+    pub sky_mote: char,
     pub vegetation_low: char,
     pub vegetation_mid: char,
     pub vegetation_high: char,
@@ -69,6 +70,7 @@ impl Default for VisualTheme {
             weather_read: '∙',
             weather_write: '✦',
             weather_mixed: '✶',
+            sky_mote: '˙',
             vegetation_low: '╷',
             vegetation_mid: '♧',
             vegetation_high: '♣',
@@ -121,8 +123,8 @@ pub fn build_landscape_frame_with_theme(
     let shore_y = height.saturating_sub(3);
     let creature_origin_y = height / 2;
 
-    draw_sky(&mut frame, theme)?;
-    draw_horizon(&mut frame, shore_y, theme)?;
+    draw_sky(&mut frame, tick, theme)?;
+    draw_horizon(&mut frame, shore_y, tick, theme)?;
     for x in 0..width {
         frame.set(
             x,
@@ -137,7 +139,7 @@ pub fn build_landscape_frame_with_theme(
             Cell::new(water_glyph, theme.water_color, theme.sky),
         )?;
     }
-    draw_shoreline(&mut frame, shore_y, theme)?;
+    draw_shoreline(&mut frame, shore_y, tick, theme)?;
 
     draw_weather(&mut frame, activity, theme)?;
     draw_vegetation(&mut frame, activity, theme)?;
@@ -146,7 +148,11 @@ pub fn build_landscape_frame_with_theme(
     Ok(frame)
 }
 
-fn draw_sky(frame: &mut Framebuffer, theme: &VisualTheme) -> Result<(), FramebufferError> {
+fn draw_sky(
+    frame: &mut Framebuffer,
+    tick: u64,
+    theme: &VisualTheme,
+) -> Result<(), FramebufferError> {
     for y in 0..frame.height() {
         let bg = sky_background(y, frame.height(), theme);
         for x in 0..frame.width() {
@@ -154,12 +160,15 @@ fn draw_sky(frame: &mut Framebuffer, theme: &VisualTheme) -> Result<(), Framebuf
         }
     }
 
+    draw_sky_motes(frame, tick, theme)?;
+
     Ok(())
 }
 
 fn draw_horizon(
     frame: &mut Framebuffer,
     shore_y: u16,
+    tick: u64,
     theme: &VisualTheme,
 ) -> Result<(), FramebufferError> {
     if shore_y < 2 {
@@ -167,12 +176,14 @@ fn draw_horizon(
     }
 
     let horizon_y = shore_y - 1;
-    for x in (0..frame.width()).step_by(6) {
-        frame.set(
-            x,
-            horizon_y,
-            Cell::new(theme.horizon_marker, theme.horizon_color, theme.sky_horizon),
-        )?;
+    for x in 0..frame.width() {
+        if horizon_marker_visible(x, frame.width(), tick) {
+            frame.set(
+                x,
+                horizon_y,
+                Cell::new(theme.horizon_marker, theme.horizon_color, theme.sky_horizon),
+            )?;
+        }
     }
 
     Ok(())
@@ -181,22 +192,81 @@ fn draw_horizon(
 fn draw_shoreline(
     frame: &mut Framebuffer,
     shore_y: u16,
+    tick: u64,
     theme: &VisualTheme,
 ) -> Result<(), FramebufferError> {
     for x in 0..frame.width() {
-        let glyph = if x.is_multiple_of(5) {
-            theme.vegetation_low
-        } else {
-            theme.shore
-        };
+        if shoreline_visible(x, tick) {
+            let glyph = if shoreline_has_reed(x, tick) {
+                theme.vegetation_low
+            } else {
+                theme.shore
+            };
+            frame.set(
+                x,
+                shore_y,
+                Cell::new(glyph, theme.shore_color, theme.sky_horizon),
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn draw_sky_motes(
+    frame: &mut Framebuffer,
+    tick: u64,
+    theme: &VisualTheme,
+) -> Result<(), FramebufferError> {
+    if frame.width() < 24 || frame.height() < 8 {
+        return Ok(());
+    }
+
+    // A tiny deterministic particle field makes the sky breathe without an RNG
+    // or a noisy full-screen redraw. Only a few cells move each frame.
+    let mote_count = (usize::from(frame.width()) / 12).clamp(4, 10);
+    let sky_limit = (frame.height() / 3).max(2);
+
+    for index in 0..mote_count {
+        let base_x = ((index + 1) * usize::from(frame.width())) / (mote_count + 1);
+        let drift = ((tick + index as u64) % 5) as i16 - 2;
+        let x = (base_x as i16 + drift).clamp(0, frame.width().saturating_sub(1) as i16) as u16;
+        let y = 1 + (organic_hash(index as u16, 3, tick / 8) % sky_limit);
+
         frame.set(
             x,
-            shore_y,
-            Cell::new(glyph, theme.shore_color, theme.sky_horizon),
+            y,
+            Cell::new(theme.sky_mote, theme.sky_text, theme.sky_top),
         )?;
     }
 
     Ok(())
+}
+
+fn horizon_marker_visible(x: u16, width: u16, tick: u64) -> bool {
+    x == width / 4
+        || organic_hash(x, 11, tick / 18).is_multiple_of(13)
+        || x.wrapping_add(5).is_multiple_of(19)
+}
+
+fn shoreline_visible(x: u16, tick: u64) -> bool {
+    let phase = tick / 12;
+    let shifted = x.wrapping_add(phase as u16 % 3);
+    shifted % 11 <= 6 || organic_hash(x, 29, phase).is_multiple_of(17)
+}
+
+fn shoreline_has_reed(x: u16, tick: u64) -> bool {
+    x.wrapping_add((tick / 12) as u16 % 5).is_multiple_of(13)
+}
+
+fn organic_hash(x: u16, salt: u16, phase: u64) -> u16 {
+    let mut value = u32::from(x);
+    value ^= u32::from(salt).wrapping_mul(0x045d_9f3b);
+    value ^= (phase as u32).wrapping_mul(0x119d_e1f3);
+    value ^= value >> 16;
+    value = value.wrapping_mul(0x045d_9f3b);
+    value ^= value >> 16;
+    value as u16
 }
 
 fn draw_weather(
@@ -311,7 +381,7 @@ fn draw_creatures(
 fn water_glyph(x: u16, tick: u64, activity: &SceneActivity, theme: &VisualTheme) -> char {
     let download = activity.network_download();
     let upload = activity.network_upload();
-    let ambient_phase = u64::from(x) + tick;
+    let ambient_phase = u64::from(x) + (tick / 2);
     let activity_phase = u64::from(x) + (tick / 2);
 
     if download >= 0.35 && upload >= 0.35 {

@@ -354,6 +354,73 @@ fn landscape_renders_depth_bands_and_shoreline_before_activity_layers() {
 }
 
 #[test]
+fn landscape_uses_irregular_horizon_spacing_instead_of_a_fixed_grid() {
+    let activity = SceneActivity::default();
+    let theme = VisualTheme::default();
+    let frame =
+        build_landscape_frame_with_activity(80, 24, 0, &activity).expect("valid organic frame");
+    let horizon_y = 20;
+    let positions = glyph_positions_on_row(&frame, horizon_y, theme.horizon_marker);
+
+    assert!(
+        positions.len() >= 5,
+        "horizon should have enough marks to read as distant texture"
+    );
+
+    let gaps: Vec<u16> = positions
+        .windows(2)
+        .map(|window| window[1] - window[0])
+        .collect();
+    assert!(
+        gaps.windows(2).any(|window| window[0] != window[1]),
+        "horizon spacing should not be a rigid fixed-step ruler: {gaps:?}"
+    );
+}
+
+#[test]
+fn calm_landscape_keeps_shoreline_broken_into_readable_clusters() {
+    let activity = SceneActivity::default();
+    let theme = VisualTheme::default();
+    let frame =
+        build_landscape_frame_with_activity(80, 24, 0, &activity).expect("valid organic frame");
+    let shore_y = 21;
+    let occupied = count_glyphs_on_row(&frame, shore_y, theme.shore)
+        + count_glyphs_on_row(&frame, shore_y, theme.vegetation_low);
+
+    assert!(
+        occupied > 24,
+        "shoreline should remain visually present, got {occupied} occupied cells"
+    );
+    assert!(
+        occupied < 72,
+        "shoreline should leave natural gaps instead of filling the whole row, got {occupied}"
+    );
+}
+
+#[test]
+fn ambient_sky_motes_are_bounded_and_drift_between_ticks() {
+    let activity = SceneActivity::default();
+    let theme = VisualTheme::default();
+    let previous =
+        build_landscape_frame_with_activity(80, 24, 0, &activity).expect("valid previous frame");
+    let current =
+        build_landscape_frame_with_activity(80, 24, 1, &activity).expect("valid current frame");
+    let previous_motes = count_glyphs(&previous, theme.sky_mote);
+    let current_motes = count_glyphs(&current, theme.sky_mote);
+    let output = AnsiDiffEncoder::new()
+        .encode_diff(&previous, &current)
+        .expect("matching organic frames");
+
+    assert!((4..=14).contains(&previous_motes));
+    assert!((4..=14).contains(&current_motes));
+    assert!(
+        output.changed_cells <= 32,
+        "ambient drift should stay cheap, changed {} cells",
+        output.changed_cells
+    );
+}
+
+#[test]
 fn scene_activity_clamps_core_loads_to_normalized_range() {
     let activity = SceneActivity::from_core_loads(vec![-0.25, 1.40]);
 
@@ -639,6 +706,12 @@ fn count_glyphs_on_row(frame: &Framebuffer, y: u16, glyph: char) -> usize {
     (0..frame.width())
         .filter(|x| frame.get(*x, y).is_some_and(|cell| cell.glyph == glyph))
         .count()
+}
+
+fn glyph_positions_on_row(frame: &Framebuffer, y: u16, glyph: char) -> Vec<u16> {
+    (0..frame.width())
+        .filter(|x| frame.get(*x, y).is_some_and(|cell| cell.glyph == glyph))
+        .collect()
 }
 
 fn count_glyphs(frame: &Framebuffer, glyph: char) -> usize {
