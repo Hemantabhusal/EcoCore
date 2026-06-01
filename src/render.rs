@@ -116,18 +116,14 @@ pub fn build_landscape_frame_with_activity(
         frame.set(x, water_y, Cell::new(water_glyph, WATER, SKY))?;
     }
 
-    draw_weather(&mut frame, tick, activity)?;
+    draw_weather(&mut frame, activity)?;
     draw_vegetation(&mut frame, activity)?;
     draw_creatures(&mut frame, creature_origin_y, tick, activity)?;
 
     Ok(frame)
 }
 
-fn draw_weather(
-    frame: &mut Framebuffer,
-    tick: u64,
-    activity: &SceneActivity,
-) -> Result<(), FramebufferError> {
+fn draw_weather(frame: &mut Framebuffer, activity: &SceneActivity) -> Result<(), FramebufferError> {
     if frame.height() < 5 || frame.width() == 0 {
         return Ok(());
     }
@@ -147,8 +143,7 @@ fn draw_weather(
 
     for index in 0..particle_count {
         let base_x = ((index + 1) * usize::from(frame.width())) / (particle_count + 1);
-        let drift = if tick.is_multiple_of(2) { 0 } else { index % 2 };
-        let x = (base_x + drift).min(usize::from(frame.width().saturating_sub(1))) as u16;
+        let x = base_x.min(usize::from(frame.width().saturating_sub(1))) as u16;
         frame.set(x, weather_y, Cell::new(glyph, WATER, SKY))?;
     }
 
@@ -216,27 +211,28 @@ fn draw_creatures(
 fn water_glyph(x: u16, tick: u64, activity: &SceneActivity) -> char {
     let download = activity.network_download();
     let upload = activity.network_upload();
-    let wave_phase = u64::from(x) + tick;
+    let ambient_phase = u64::from(x) + tick;
+    let activity_phase = u64::from(x) + (tick / 2);
 
     if download >= 0.35 && upload >= 0.35 {
-        if wave_phase.is_multiple_of(3) {
+        if activity_phase.is_multiple_of(3) {
             '~'
         } else {
             '='
         }
     } else if download >= 0.35 && download >= upload {
-        if wave_phase.is_multiple_of(5) {
+        if activity_phase.is_multiple_of(5) {
             '~'
         } else {
             '>'
         }
     } else if upload >= 0.35 {
-        if wave_phase.is_multiple_of(5) {
+        if activity_phase.is_multiple_of(5) {
             '~'
         } else {
             '<'
         }
-    } else if wave_phase.is_multiple_of(4) {
+    } else if ambient_phase.is_multiple_of(4) {
         '>'
     } else {
         '~'

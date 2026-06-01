@@ -406,6 +406,65 @@ fn activity_smoother_clamps_response_to_valid_range() {
 }
 
 #[test]
+fn full_ecosystem_scene_keeps_layers_readable_and_output_bounded() {
+    let activity = SceneActivity::from_core_loads(vec![0.95; 8])
+        .with_memory_pressure(1.0)
+        .with_network_flow(1.0, 1.0)
+        .with_disk_activity(1.0, 1.0);
+
+    let previous =
+        build_landscape_frame_with_activity(40, 14, 0, &activity).expect("valid previous frame");
+    let current =
+        build_landscape_frame_with_activity(40, 14, 1, &activity).expect("valid current frame");
+    let output = AnsiDiffEncoder::new()
+        .encode_diff(&previous, &current)
+        .expect("matching active frames");
+
+    assert_eq!(count_glyphs_on_row(&current, 3, '#'), 10);
+    assert_eq!(count_glyphs_on_row(&current, 11, '^'), 10);
+    assert_eq!(count_glyphs_on_row(&current, 12, '='), 26);
+    assert_eq!(count_glyphs_on_row(&current, 13, '.'), 40);
+    assert_eq!(count_glyphs(&current, '@'), 8);
+    assert!(
+        output.changed_cells <= 48,
+        "full ecosystem animation changed {} cells",
+        output.changed_cells
+    );
+}
+
+#[test]
+fn full_ecosystem_scene_stays_within_phase_two_render_budget_over_multiple_frames() {
+    let activity = SceneActivity::from_core_loads(vec![0.95; 16])
+        .with_memory_pressure(1.0)
+        .with_network_flow(1.0, 1.0)
+        .with_disk_activity(1.0, 1.0);
+    let mut previous =
+        build_landscape_frame_with_activity(80, 24, 0, &activity).expect("valid initial frame");
+    let mut stats = FrameStats::default();
+
+    for tick in 1..=16 {
+        let current = build_landscape_frame_with_activity(80, 24, tick, &activity)
+            .expect("valid active frame");
+        let output = AnsiDiffEncoder::new()
+            .encode_diff(&previous, &current)
+            .expect("matching active frames");
+        stats.record_frame(output.changed_cells, output.bytes.len());
+        previous = current;
+    }
+
+    assert!(
+        stats.average_changed_cells() <= 80,
+        "average changed cells was {}",
+        stats.average_changed_cells()
+    );
+    assert!(
+        stats.average_bytes() <= 4_000,
+        "average encoded bytes was {}",
+        stats.average_bytes()
+    );
+}
+
+#[test]
 fn landscape_wraps_dense_cpu_activity_into_readable_lanes() {
     let activity = SceneActivity::from_core_loads(vec![0.50; 8]);
 
@@ -501,5 +560,12 @@ fn frame_stats_summarize_render_output_for_trace_mode() {
 fn count_glyphs_on_row(frame: &Framebuffer, y: u16, glyph: char) -> usize {
     (0..frame.width())
         .filter(|x| frame.get(*x, y).is_some_and(|cell| cell.glyph == glyph))
+        .count()
+}
+
+fn count_glyphs(frame: &Framebuffer, glyph: char) -> usize {
+    (0..frame.height())
+        .flat_map(|y| (0..frame.width()).map(move |x| (x, y)))
+        .filter(|(x, y)| frame.get(*x, *y).is_some_and(|cell| cell.glyph == glyph))
         .count()
 }
