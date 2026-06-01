@@ -14,9 +14,9 @@ use ecosystem::{
     metrics::disk::{DiskSampler, DiskSamplerStatus},
     metrics::memory::MemorySampler,
     metrics::network::{NetworkSampler, NetworkSamplerStatus},
-    render::{SceneActivity, build_landscape_frame, build_landscape_frame_with_activity},
+    render::{build_landscape_frame, build_landscape_frame_with_activity},
     runtime::{FrameStats, ResizeDebouncer, ResizeDecision, RuntimeConfig},
-    simulation::ActivitySmoother,
+    simulation::{ActivitySmoother, SceneActivity},
     terminal::{
         AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen,
         current_terminal_size,
@@ -93,8 +93,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     loop {
         let now = Instant::now();
         if now >= next_metrics_at {
-            // Metrics are sampled below the frame rate so `/proc/stat` reads do
-            // not become part of the hot render path.
+            // Metrics are sampled below the frame rate so Linux `/proc` reads
+            // do not become part of the hot render path.
             match cpu_sampler.sample_from_system(traces) {
                 Ok(CpuSamplerStatus::Primed { .. }) => {}
                 Ok(CpuSamplerStatus::Usage(usage)) => {

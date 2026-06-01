@@ -7,14 +7,13 @@ use ecosystem::{
     framebuffer::{Cell, Color, Framebuffer},
     input::{EngineAction, key_event_to_action},
     render::{
-        SceneActivity, build_landscape_frame, build_landscape_frame_with_activity,
-        build_static_landscape_frame,
+        build_landscape_frame, build_landscape_frame_with_activity, build_static_landscape_frame,
     },
     runtime::{
         FrameStats, ResizeDebouncer, ResizeDecision, RuntimeConfig, resize_decision,
         target_frame_duration,
     },
-    simulation::ActivitySmoother,
+    simulation::{ActivitySmoother, SceneActivity},
     terminal::{
         AnsiDiffEncoder, ColorCapability, TerminalColorEnvironment, TerminalSession,
         TerminalSessionOptions, TerminalSize, detect_color_capability,

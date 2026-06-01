@@ -1,4 +1,5 @@
 use crate::framebuffer::{Cell, Color, Framebuffer, FramebufferError};
+use crate::simulation::SceneActivity;
 
 const SKY: Color = Color::rgb(8, 18, 34);
 const GROUND: Color = Color::rgb(35, 50, 35);
@@ -6,73 +7,6 @@ const WATER: Color = Color::rgb(35, 120, 210);
 const CREATURE: Color = Color::rgb(255, 180, 80);
 const BUSY_CREATURE: Color = Color::rgb(255, 95, 90);
 const VEGETATION: Color = Color::rgb(95, 190, 105);
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct SceneActivity {
-    core_loads: Vec<f32>,
-    memory_pressure: f32,
-    network_download: f32,
-    network_upload: f32,
-    disk_read: f32,
-    disk_write: f32,
-}
-
-impl SceneActivity {
-    pub fn from_core_loads(core_loads: Vec<f32>) -> Self {
-        Self::default().with_core_loads(core_loads)
-    }
-
-    pub fn with_core_loads(mut self, core_loads: Vec<f32>) -> Self {
-        let core_loads = core_loads
-            .into_iter()
-            .map(normalize_unit_interval)
-            .collect();
-
-        self.core_loads = core_loads;
-        self
-    }
-
-    pub fn with_memory_pressure(mut self, memory_pressure: f32) -> Self {
-        self.memory_pressure = normalize_unit_interval(memory_pressure);
-        self
-    }
-
-    pub fn with_network_flow(mut self, download: f32, upload: f32) -> Self {
-        self.network_download = normalize_unit_interval(download);
-        self.network_upload = normalize_unit_interval(upload);
-        self
-    }
-
-    pub fn with_disk_activity(mut self, read: f32, write: f32) -> Self {
-        self.disk_read = normalize_unit_interval(read);
-        self.disk_write = normalize_unit_interval(write);
-        self
-    }
-
-    pub fn core_loads(&self) -> &[f32] {
-        &self.core_loads
-    }
-
-    pub fn memory_pressure(&self) -> f32 {
-        self.memory_pressure
-    }
-
-    pub fn network_download(&self) -> f32 {
-        self.network_download
-    }
-
-    pub fn network_upload(&self) -> f32 {
-        self.network_upload
-    }
-
-    pub fn disk_read(&self) -> f32 {
-        self.disk_read
-    }
-
-    pub fn disk_write(&self) -> f32 {
-        self.disk_write
-    }
-}
 
 pub fn build_static_landscape_frame(
     width: u16,
@@ -320,12 +254,4 @@ fn creature_cell(load: f32, tick: u64) -> Cell {
         CREATURE
     };
     Cell::new(glyph, color, SKY)
-}
-
-fn normalize_unit_interval(value: f32) -> f32 {
-    if value.is_finite() {
-        value.clamp(0.0, 1.0)
-    } else {
-        0.0
-    }
 }
