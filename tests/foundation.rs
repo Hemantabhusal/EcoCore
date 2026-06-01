@@ -351,6 +351,24 @@ fn landscape_maps_network_flow_to_directional_water() {
 }
 
 #[test]
+fn landscape_maps_disk_activity_to_bounded_weather() {
+    let read_activity = SceneActivity::default().with_disk_activity(1.0, 0.0);
+    let write_activity = SceneActivity::default().with_disk_activity(0.0, 1.0);
+    let mixed_activity = SceneActivity::default().with_disk_activity(1.0, 1.0);
+
+    let read_frame =
+        build_landscape_frame_with_activity(20, 10, 0, &read_activity).expect("valid read frame");
+    let write_frame =
+        build_landscape_frame_with_activity(20, 10, 0, &write_activity).expect("valid write frame");
+    let mixed_frame =
+        build_landscape_frame_with_activity(20, 10, 0, &mixed_activity).expect("valid mixed frame");
+
+    assert_eq!(count_glyphs_on_row(&read_frame, 2, ','), 5);
+    assert_eq!(count_glyphs_on_row(&write_frame, 2, '*'), 5);
+    assert_eq!(count_glyphs_on_row(&mixed_frame, 2, '#'), 5);
+}
+
+#[test]
 fn landscape_wraps_dense_cpu_activity_into_readable_lanes() {
     let activity = SceneActivity::from_core_loads(vec![0.50; 8]);
 

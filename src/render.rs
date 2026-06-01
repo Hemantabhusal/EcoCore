@@ -13,6 +13,8 @@ pub struct SceneActivity {
     memory_pressure: f32,
     network_download: f32,
     network_upload: f32,
+    disk_read: f32,
+    disk_write: f32,
 }
 
 impl SceneActivity {
@@ -41,6 +43,12 @@ impl SceneActivity {
         self
     }
 
+    pub fn with_disk_activity(mut self, read: f32, write: f32) -> Self {
+        self.disk_read = normalize_unit_interval(read);
+        self.disk_write = normalize_unit_interval(write);
+        self
+    }
+
     pub fn core_loads(&self) -> &[f32] {
         &self.core_loads
     }
@@ -55,6 +63,14 @@ impl SceneActivity {
 
     pub fn network_upload(&self) -> f32 {
         self.network_upload
+    }
+
+    pub fn disk_read(&self) -> f32 {
+        self.disk_read
+    }
+
+    pub fn disk_write(&self) -> f32 {
+        self.disk_write
     }
 }
 
@@ -100,10 +116,43 @@ pub fn build_landscape_frame_with_activity(
         frame.set(x, water_y, Cell::new(water_glyph, WATER, SKY))?;
     }
 
+    draw_weather(&mut frame, tick, activity)?;
     draw_vegetation(&mut frame, activity)?;
     draw_creatures(&mut frame, creature_origin_y, tick, activity)?;
 
     Ok(frame)
+}
+
+fn draw_weather(
+    frame: &mut Framebuffer,
+    tick: u64,
+    activity: &SceneActivity,
+) -> Result<(), FramebufferError> {
+    if frame.height() < 5 || frame.width() == 0 {
+        return Ok(());
+    }
+
+    let intensity = activity.disk_read().max(activity.disk_write());
+    if intensity < 0.35 {
+        return Ok(());
+    }
+
+    // Disk activity becomes sparse sky weather. Keeping it to one bounded row
+    // makes reads/writes visible without turning heavy I/O into a full-screen
+    // redraw source.
+    let max_particles = usize::from(frame.width()).div_ceil(4).max(1);
+    let particle_count = (max_particles as f32 * intensity).round() as usize;
+    let weather_y = (frame.height() / 4).max(1);
+    let glyph = weather_glyph(activity);
+
+    for index in 0..particle_count {
+        let base_x = ((index + 1) * usize::from(frame.width())) / (particle_count + 1);
+        let drift = if tick.is_multiple_of(2) { 0 } else { index % 2 };
+        let x = (base_x + drift).min(usize::from(frame.width().saturating_sub(1))) as u16;
+        frame.set(x, weather_y, Cell::new(glyph, WATER, SKY))?;
+    }
+
+    Ok(())
 }
 
 fn draw_vegetation(
@@ -191,6 +240,19 @@ fn water_glyph(x: u16, tick: u64, activity: &SceneActivity) -> char {
         '>'
     } else {
         '~'
+    }
+}
+
+fn weather_glyph(activity: &SceneActivity) -> char {
+    let read = activity.disk_read();
+    let write = activity.disk_write();
+
+    if read >= 0.35 && write >= 0.35 {
+        '#'
+    } else if write >= read {
+        '*'
+    } else {
+        ','
     }
 }
 

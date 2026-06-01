@@ -1,6 +1,9 @@
 use ecosystem::{
     diagnostics::TraceCollector,
     metrics::cpu::{CpuSampler, CpuSamplerStatus, calculate_cpu_usage, parse_proc_stat},
+    metrics::disk::{
+        DiskSampler, DiskSamplerStatus, calculate_disk_activity, parse_proc_diskstats,
+    },
     metrics::memory::{MemorySampler, calculate_memory_pressure, parse_meminfo},
     metrics::network::{
         NetworkSampler, NetworkSamplerStatus, calculate_network_flow, parse_proc_net_dev,
@@ -53,6 +56,24 @@ Inter-|   Receive                                                |  Transmit
 docker0: 9000 10 0 0 0 0 0 0 9000 10 0 0 0 0 0 0
  enp3s0: 1100000 20 0 0 0 0 0 0 250000 20 0 0 0 0 0 0
   wlan0: 1300000 30 0 0 0 0 0 0 1100000 30 0 0 0 0 0 0
+";
+
+const PROC_DISKSTATS_PREVIOUS: &str = "\
+   7       0 loop0 10 0 100 0 10 0 100 0 0 0 0 0 0 0 0 0 0
+   8       0 sda 100 0 1000 0 50 0 500 0 0 0 0 0 0 0 0 0 0
+   8       1 sda1 100 0 99999 0 50 0 99999 0 0 0 0 0 0 0 0 0 0
+ 259       0 nvme0n1 100 0 2000 0 50 0 1000 0 0 0 0 0 0 0 0 0 0
+ 259       1 nvme0n1p1 100 0 99999 0 50 0 99999 0 0 0 0 0 0 0 0 0 0
+ 254       0 dm-0 100 0 99999 0 50 0 99999 0 0 0 0 0 0 0 0 0 0
+";
+
+const PROC_DISKSTATS_CURRENT: &str = "\
+   7       0 loop0 10 0 5000 0 10 0 5000 0 0 0 0 0 0 0 0 0 0
+   8       0 sda 110 0 3048 0 60 0 1524 0 0 0 0 0 0 0 0 0 0
+   8       1 sda1 110 0 199999 0 60 0 199999 0 0 0 0 0 0 0 0 0 0
+ 259       0 nvme0n1 110 0 4048 0 60 0 2024 0 0 0 0 0 0 0 0 0 0
+ 259       1 nvme0n1p1 110 0 199999 0 60 0 199999 0 0 0 0 0 0 0 0 0 0
+ 254       0 dm-0 110 0 199999 0 60 0 199999 0 0 0 0 0 0 0 0 0 0
 ";
 
 #[test]
@@ -269,5 +290,56 @@ fn network_sampler_primes_then_emits_flow_and_trace_event() {
     assert!(traces.snapshot().iter().any(|event| {
         event.target == "metrics.network"
             && event.message.contains("sampled flow down 1.00 up 0.55")
+    }));
+}
+
+#[test]
+fn proc_diskstats_parser_filters_partitions_and_virtual_devices() {
+    let sample = parse_proc_diskstats(PROC_DISKSTATS_PREVIOUS).expect("valid diskstats fixture");
+
+    assert_eq!(sample.devices.len(), 2);
+    assert_eq!(sample.devices[0].name, "sda");
+    assert_eq!(sample.devices[0].sectors_read, 1_000);
+    assert_eq!(sample.devices[0].sectors_written, 500);
+    assert_eq!(sample.devices[1].name, "nvme0n1");
+}
+
+#[test]
+fn disk_activity_delta_normalizes_read_and_write_rates() {
+    let previous = parse_proc_diskstats(PROC_DISKSTATS_PREVIOUS).expect("valid previous sample");
+    let current = parse_proc_diskstats(PROC_DISKSTATS_CURRENT).expect("valid current sample");
+
+    let activity =
+        calculate_disk_activity(&previous, &current, Duration::from_secs(1)).expect("valid delta");
+
+    assert!((activity.read - 1.0).abs() < f32::EPSILON);
+    assert!((activity.write - 0.5).abs() < f32::EPSILON);
+}
+
+#[test]
+fn disk_sampler_primes_then_emits_activity_and_trace_event() {
+    let mut sampler = DiskSampler::default();
+    let mut traces = TraceCollector::enabled();
+
+    let status = sampler
+        .sample_from_proc_diskstats(PROC_DISKSTATS_PREVIOUS, Duration::ZERO, &mut traces)
+        .expect("first sample parses");
+
+    assert_eq!(status, DiskSamplerStatus::Primed { device_count: 2 });
+
+    let status = sampler
+        .sample_from_proc_diskstats(PROC_DISKSTATS_CURRENT, Duration::from_secs(1), &mut traces)
+        .expect("second sample parses");
+
+    let DiskSamplerStatus::Activity(activity) = status else {
+        panic!("expected disk activity status");
+    };
+    assert!((activity.read - 1.0).abs() < f32::EPSILON);
+    assert!((activity.write - 0.5).abs() < f32::EPSILON);
+    assert!(traces.snapshot().iter().any(|event| {
+        event.target == "metrics.disk"
+            && event
+                .message
+                .contains("sampled activity read 1.00 write 0.50")
     }));
 }

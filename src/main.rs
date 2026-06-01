@@ -11,6 +11,7 @@ use ecosystem::{
     framebuffer::{Cell, Framebuffer},
     input::{EngineAction, key_event_to_action},
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
+    metrics::disk::{DiskSampler, DiskSamplerStatus},
     metrics::memory::MemorySampler,
     metrics::network::{NetworkSampler, NetworkSamplerStatus},
     render::{SceneActivity, build_landscape_frame, build_landscape_frame_with_activity},
@@ -72,7 +73,9 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     let mut cpu_sampler = CpuSampler::default();
     let mut memory_sampler = MemorySampler;
     let mut network_sampler = NetworkSampler::default();
+    let mut disk_sampler = DiskSampler::default();
     let mut last_network_sample_at = None;
+    let mut last_disk_sample_at = None;
     let mut scene_activity = SceneActivity::default();
     let mut next_metrics_at = Instant::now();
     let mut rendering_suspended = false;
@@ -125,6 +128,25 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                 Err(error) => {
                     traces.record(TraceEvent::new(
                         "metrics.network",
+                        format!("sample failed: {error}"),
+                    ));
+                }
+            }
+            let disk_elapsed = last_disk_sample_at
+                .map(|sampled_at| now.saturating_duration_since(sampled_at))
+                .unwrap_or(Duration::ZERO);
+            match disk_sampler.sample_from_system(disk_elapsed, traces) {
+                Ok(DiskSamplerStatus::Primed { .. }) => {
+                    last_disk_sample_at = Some(now);
+                }
+                Ok(DiskSamplerStatus::Activity(activity)) => {
+                    scene_activity =
+                        scene_activity.with_disk_activity(activity.read, activity.write);
+                    last_disk_sample_at = Some(now);
+                }
+                Err(error) => {
+                    traces.record(TraceEvent::new(
+                        "metrics.disk",
                         format!("sample failed: {error}"),
                     ));
                 }
