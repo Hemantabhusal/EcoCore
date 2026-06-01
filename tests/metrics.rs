@@ -2,7 +2,11 @@ use ecosystem::{
     diagnostics::TraceCollector,
     metrics::cpu::{CpuSampler, CpuSamplerStatus, calculate_cpu_usage, parse_proc_stat},
     metrics::memory::{MemorySampler, calculate_memory_pressure, parse_meminfo},
+    metrics::network::{
+        NetworkSampler, NetworkSamplerStatus, calculate_network_flow, parse_proc_net_dev,
+    },
 };
+use std::time::Duration;
 
 const PROC_STAT_PREVIOUS: &str = "\
 cpu  100 0 50 1000 10 0 0 0 0 0
@@ -31,6 +35,24 @@ Cached:          200000 kB
 const MEMINFO_PRESSURE: &str = "\
 MemTotal:       1000000 kB
 MemAvailable:     50000 kB
+";
+
+const PROC_NET_DEV_PREVIOUS: &str = "\
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 1000 10 0 0 0 0 0 0 1000 10 0 0 0 0 0 0
+docker0: 4000 10 0 0 0 0 0 0 5000 10 0 0 0 0 0 0
+ enp3s0: 100000 20 0 0 0 0 0 0 50000 20 0 0 0 0 0 0
+  wlan0: 300000 30 0 0 0 0 0 0 200000 30 0 0 0 0 0 0
+";
+
+const PROC_NET_DEV_CURRENT: &str = "\
+Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo: 9000 10 0 0 0 0 0 0 9000 10 0 0 0 0 0 0
+docker0: 9000 10 0 0 0 0 0 0 9000 10 0 0 0 0 0 0
+ enp3s0: 1100000 20 0 0 0 0 0 0 250000 20 0 0 0 0 0 0
+  wlan0: 1300000 30 0 0 0 0 0 0 1100000 30 0 0 0 0 0 0
 ";
 
 #[test]
@@ -198,5 +220,54 @@ fn memory_sampler_emits_current_pressure_and_trace_event() {
     assert!((pressure.value - 0.95).abs() < f32::EPSILON);
     assert!(traces.snapshot().iter().any(|event| {
         event.target == "metrics.memory" && event.message.contains("sampled pressure 0.95")
+    }));
+}
+
+#[test]
+fn proc_net_dev_parser_filters_loopback_and_container_interfaces() {
+    let sample = parse_proc_net_dev(PROC_NET_DEV_PREVIOUS).expect("valid network fixture");
+
+    assert_eq!(sample.interfaces.len(), 2);
+    assert_eq!(sample.interfaces[0].name, "enp3s0");
+    assert_eq!(sample.interfaces[0].rx_bytes, 100_000);
+    assert_eq!(sample.interfaces[0].tx_bytes, 50_000);
+    assert_eq!(sample.interfaces[1].name, "wlan0");
+}
+
+#[test]
+fn network_flow_delta_normalizes_download_and_upload_activity() {
+    let previous = parse_proc_net_dev(PROC_NET_DEV_PREVIOUS).expect("valid previous sample");
+    let current = parse_proc_net_dev(PROC_NET_DEV_CURRENT).expect("valid current sample");
+
+    let flow =
+        calculate_network_flow(&previous, &current, Duration::from_secs(1)).expect("valid flow");
+
+    assert!((flow.download - 1.0).abs() < f32::EPSILON);
+    assert!((flow.upload - 0.55).abs() < f32::EPSILON);
+}
+
+#[test]
+fn network_sampler_primes_then_emits_flow_and_trace_event() {
+    let mut sampler = NetworkSampler::default();
+    let mut traces = TraceCollector::enabled();
+
+    let status = sampler
+        .sample_from_proc_net_dev(PROC_NET_DEV_PREVIOUS, Duration::ZERO, &mut traces)
+        .expect("first sample parses");
+
+    assert_eq!(status, NetworkSamplerStatus::Primed { interface_count: 2 });
+
+    let status = sampler
+        .sample_from_proc_net_dev(PROC_NET_DEV_CURRENT, Duration::from_secs(1), &mut traces)
+        .expect("second sample parses");
+
+    let NetworkSamplerStatus::Flow(flow) = status else {
+        panic!("expected flow status");
+    };
+    assert!((flow.download - 1.0).abs() < f32::EPSILON);
+    assert!((flow.upload - 0.55).abs() < f32::EPSILON);
+    assert!(traces.snapshot().iter().any(|event| {
+        event.target == "metrics.network"
+            && event.message.contains("sampled flow down 1.00 up 0.55")
     }));
 }

@@ -11,6 +11,8 @@ const VEGETATION: Color = Color::rgb(95, 190, 105);
 pub struct SceneActivity {
     core_loads: Vec<f32>,
     memory_pressure: f32,
+    network_download: f32,
+    network_upload: f32,
 }
 
 impl SceneActivity {
@@ -33,12 +35,26 @@ impl SceneActivity {
         self
     }
 
+    pub fn with_network_flow(mut self, download: f32, upload: f32) -> Self {
+        self.network_download = normalize_unit_interval(download);
+        self.network_upload = normalize_unit_interval(upload);
+        self
+    }
+
     pub fn core_loads(&self) -> &[f32] {
         &self.core_loads
     }
 
     pub fn memory_pressure(&self) -> f32 {
         self.memory_pressure
+    }
+
+    pub fn network_download(&self) -> f32 {
+        self.network_download
+    }
+
+    pub fn network_upload(&self) -> f32 {
+        self.network_upload
     }
 }
 
@@ -80,11 +96,7 @@ pub fn build_landscape_frame_with_activity(
     for x in 0..width {
         frame.set(x, ground_y, Cell::new('.', Color::rgb(90, 150, 85), GROUND))?;
 
-        let water_glyph = if (u64::from(x) + tick).is_multiple_of(4) {
-            '>'
-        } else {
-            '~'
-        };
+        let water_glyph = water_glyph(x, tick, activity);
         frame.set(x, water_y, Cell::new(water_glyph, WATER, SKY))?;
     }
 
@@ -150,6 +162,36 @@ fn draw_creatures(
     }
 
     Ok(())
+}
+
+fn water_glyph(x: u16, tick: u64, activity: &SceneActivity) -> char {
+    let download = activity.network_download();
+    let upload = activity.network_upload();
+    let wave_phase = u64::from(x) + tick;
+
+    if download >= 0.35 && upload >= 0.35 {
+        if wave_phase.is_multiple_of(3) {
+            '~'
+        } else {
+            '='
+        }
+    } else if download >= 0.35 && download >= upload {
+        if wave_phase.is_multiple_of(5) {
+            '~'
+        } else {
+            '>'
+        }
+    } else if upload >= 0.35 {
+        if wave_phase.is_multiple_of(5) {
+            '~'
+        } else {
+            '<'
+        }
+    } else if wave_phase.is_multiple_of(4) {
+        '>'
+    } else {
+        '~'
+    }
 }
 
 fn creature_lane_count(creature_count: usize, height: u16) -> usize {

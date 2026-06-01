@@ -333,6 +333,24 @@ fn landscape_maps_memory_pressure_to_bounded_vegetation_density() {
 }
 
 #[test]
+fn landscape_maps_network_flow_to_directional_water() {
+    let download_activity = SceneActivity::default().with_network_flow(1.0, 0.0);
+    let upload_activity = SceneActivity::default().with_network_flow(0.0, 1.0);
+    let mixed_activity = SceneActivity::default().with_network_flow(1.0, 1.0);
+
+    let download_frame = build_landscape_frame_with_activity(20, 10, 0, &download_activity)
+        .expect("valid download frame");
+    let upload_frame = build_landscape_frame_with_activity(20, 10, 0, &upload_activity)
+        .expect("valid upload frame");
+    let mixed_frame =
+        build_landscape_frame_with_activity(20, 10, 0, &mixed_activity).expect("valid mixed frame");
+
+    assert!(count_glyphs_on_row(&download_frame, 8, '>') > 10);
+    assert!(count_glyphs_on_row(&upload_frame, 8, '<') > 10);
+    assert!(count_glyphs_on_row(&mixed_frame, 8, '=') > 5);
+}
+
+#[test]
 fn landscape_wraps_dense_cpu_activity_into_readable_lanes() {
     let activity = SceneActivity::from_core_loads(vec![0.50; 8]);
 
