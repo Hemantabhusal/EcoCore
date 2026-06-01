@@ -33,6 +33,59 @@ pub fn current_terminal_size() -> std::io::Result<TerminalSize> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TerminalColorEnvironment {
+    pub colorterm: Option<String>,
+    pub term: Option<String>,
+}
+
+impl TerminalColorEnvironment {
+    pub fn new(colorterm: Option<&str>, term: Option<&str>) -> Self {
+        Self {
+            colorterm: colorterm.map(str::to_owned),
+            term: term.map(str::to_owned),
+        }
+    }
+
+    pub fn from_process_env() -> Self {
+        Self {
+            colorterm: std::env::var("COLORTERM").ok(),
+            term: std::env::var("TERM").ok(),
+        }
+    }
+}
+
+impl Default for TerminalColorEnvironment {
+    fn default() -> Self {
+        Self::from_process_env()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ColorCapability {
+    Truecolor,
+    Limited,
+}
+
+pub fn detect_color_capability(environment: &TerminalColorEnvironment) -> ColorCapability {
+    let has_truecolor_marker = environment
+        .colorterm
+        .as_deref()
+        .is_some_and(is_truecolor_marker)
+        || environment.term.as_deref().is_some_and(is_truecolor_marker);
+
+    if has_truecolor_marker {
+        ColorCapability::Truecolor
+    } else {
+        ColorCapability::Limited
+    }
+}
+
+fn is_truecolor_marker(value: &str) -> bool {
+    let value = value.to_ascii_lowercase();
+    value.contains("truecolor") || value.contains("24bit") || value.contains("direct")
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TerminalValidationError {
     StdoutNotTerminal,
     TooSmall {

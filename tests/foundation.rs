@@ -15,7 +15,8 @@ use ecosystem::{
         target_frame_duration,
     },
     terminal::{
-        AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize,
+        AnsiDiffEncoder, ColorCapability, TerminalColorEnvironment, TerminalSession,
+        TerminalSessionOptions, TerminalSize, detect_color_capability,
         validate_terminal_environment,
     },
 };
@@ -124,6 +125,31 @@ fn terminal_size_converts_from_terminal_probe_tuple() {
 }
 
 #[test]
+fn terminal_color_detection_accepts_common_truecolor_markers() {
+    let capability = detect_color_capability(&TerminalColorEnvironment::new(
+        Some("truecolor"),
+        Some("xterm-kitty"),
+    ));
+
+    assert_eq!(capability, ColorCapability::Truecolor);
+
+    let capability = detect_color_capability(&TerminalColorEnvironment::new(
+        Some("24bit"),
+        Some("screen-256color"),
+    ));
+
+    assert_eq!(capability, ColorCapability::Truecolor);
+}
+
+#[test]
+fn terminal_color_detection_treats_missing_truecolor_markers_as_limited() {
+    let capability =
+        detect_color_capability(&TerminalColorEnvironment::new(None, Some("xterm-256color")));
+
+    assert_eq!(capability, ColorCapability::Limited);
+}
+
+#[test]
 fn app_initial_frame_returns_user_facing_startup_error_for_non_tty() {
     let mut traces = TraceCollector::enabled();
     let error = render_initial_frame(
@@ -154,6 +180,25 @@ fn app_initial_frame_uses_terminal_size_for_rendered_frame() {
             .snapshot()
             .iter()
             .any(|event| event.message.contains("encoded 1920 changed cells"))
+    );
+}
+
+#[test]
+fn app_initial_frame_records_limited_color_warning_without_failing() {
+    let mut traces = TraceCollector::enabled();
+    let output = render_initial_frame(
+        StartupEnvironment::new(true, TerminalSize::new(80, 24))
+            .with_color_environment(TerminalColorEnvironment::new(None, Some("xterm-256color"))),
+        &mut traces,
+    )
+    .expect("limited color does not block startup");
+
+    assert_eq!(output.changed_cells, 80 * 24);
+    assert!(
+        traces
+            .snapshot()
+            .iter()
+            .any(|event| { event.target == "terminal.color" && event.message.contains("limited") })
     );
 }
 

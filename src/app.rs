@@ -5,23 +5,30 @@ use crate::{
     framebuffer::{Cell, Framebuffer, FramebufferError},
     render::build_static_landscape_frame,
     terminal::{
-        AnsiDiffEncoder, EncodeOutput, TerminalSize, TerminalValidationError,
-        validate_terminal_environment,
+        AnsiDiffEncoder, ColorCapability, EncodeOutput, TerminalColorEnvironment, TerminalSize,
+        TerminalValidationError, detect_color_capability, validate_terminal_environment,
     },
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StartupEnvironment {
     pub stdout_is_terminal: bool,
     pub terminal_size: TerminalSize,
+    pub color_environment: TerminalColorEnvironment,
 }
 
 impl StartupEnvironment {
-    pub const fn new(stdout_is_terminal: bool, terminal_size: TerminalSize) -> Self {
+    pub fn new(stdout_is_terminal: bool, terminal_size: TerminalSize) -> Self {
         Self {
             stdout_is_terminal,
             terminal_size,
+            color_environment: TerminalColorEnvironment::default(),
         }
+    }
+
+    pub fn with_color_environment(mut self, color_environment: TerminalColorEnvironment) -> Self {
+        self.color_environment = color_environment;
+        self
     }
 }
 
@@ -67,6 +74,7 @@ pub fn render_initial_frame(
     ));
 
     validate_terminal_environment(environment.stdout_is_terminal, environment.terminal_size)?;
+    record_color_capability(&environment, traces);
 
     traces.record(TraceEvent::new(
         "startup",
@@ -90,4 +98,18 @@ pub fn render_initial_frame(
     ));
 
     Ok(encoded)
+}
+
+fn record_color_capability(environment: &StartupEnvironment, traces: &mut TraceCollector) {
+    let capability = detect_color_capability(&environment.color_environment);
+    let message = match capability {
+        ColorCapability::Truecolor => "truecolor capability detected".to_owned(),
+        ColorCapability::Limited => {
+            // Truecolor is not a hard startup requirement because some terminal
+            // emulators approximate 24-bit ANSI color without advertising it.
+            "limited color capability detected; truecolor is recommended".to_owned()
+        }
+    };
+
+    traces.record(TraceEvent::new("terminal.color", message));
 }
