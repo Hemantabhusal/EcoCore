@@ -38,9 +38,15 @@ pub struct VisualTheme {
     pub vegetation_low: char,
     pub vegetation_mid: char,
     pub vegetation_high: char,
+    pub creature_idle_left: char,
     pub creature_idle: char,
+    pub creature_idle_right: char,
+    pub creature_active_left: char,
     pub creature_active: char,
+    pub creature_active_right: char,
+    pub creature_busy_left: char,
     pub creature_busy: char,
+    pub creature_busy_right: char,
 }
 
 impl Default for VisualTheme {
@@ -74,9 +80,15 @@ impl Default for VisualTheme {
             vegetation_low: '╷',
             vegetation_mid: '♧',
             vegetation_high: '♣',
-            creature_idle: '◦',
-            creature_active: '●',
-            creature_busy: '◆',
+            creature_idle_left: '▗',
+            creature_idle: '▄',
+            creature_idle_right: '▖',
+            creature_active_left: '▐',
+            creature_active: '▄',
+            creature_active_right: '▌',
+            creature_busy_left: '▟',
+            creature_busy: '█',
+            creature_busy_right: '▙',
         }
     }
 }
@@ -357,7 +369,7 @@ fn draw_creatures(
     let creature_count = if loads.is_empty() {
         1
     } else {
-        loads.len().min(usize::from(width.saturating_sub(1)).max(1))
+        loads.len().min(max_creatures_for_width(width))
     };
     let lane_count = creature_lane_count(creature_count, frame.height());
     let creatures_per_lane = creature_count.div_ceil(lane_count);
@@ -372,10 +384,18 @@ fn draw_creatures(
             .min(creatures_per_lane);
         let x = creature_x(lane_slot, lane_size, width, load, tick);
         let y = (lane_start_y + lane as u16).min(frame.height().saturating_sub(3));
-        frame.set(x, y, creature_cell(load, tick, theme))?;
+        draw_creature_sprite(frame, x, y, load, theme)?;
     }
 
     Ok(())
+}
+
+fn max_creatures_for_width(width: u16) -> usize {
+    if width >= 3 {
+        usize::from(width / 3).max(1)
+    } else {
+        usize::from(width).max(1)
+    }
 }
 
 fn water_glyph(x: u16, tick: u64, activity: &SceneActivity, theme: &VisualTheme) -> char {
@@ -472,7 +492,7 @@ fn drifted_x(base_x: u16, width: u16, load: f32, tick: u64) -> u16 {
 
     // Movement is deliberately capped to one cell. It gives active cores life
     // while keeping ANSI diffs small and preventing layout jitter.
-    let offset = match tick % 4 {
+    let offset = match (tick / 4) % 4 {
         1 => 1_i16,
         3 => -1_i16,
         _ => 0_i16,
@@ -481,23 +501,62 @@ fn drifted_x(base_x: u16, width: u16, load: f32, tick: u64) -> u16 {
     (base_x as i16 + offset).clamp(0, max_x) as u16
 }
 
-fn creature_cell(load: f32, tick: u64, theme: &VisualTheme) -> Cell {
-    // CPU load is intentionally reduced to three visual states. This keeps the
-    // ambient scene readable and avoids noisy one-frame glyph changes.
-    let glyph = if load >= 0.75 {
-        theme.creature_busy
-    } else if load >= 0.35 {
-        theme.creature_active
-    } else if tick.is_multiple_of(2) {
-        theme.creature_idle
-    } else {
-        theme.creature_active
-    };
+fn draw_creature_sprite(
+    frame: &mut Framebuffer,
+    center_x: u16,
+    y: u16,
+    load: f32,
+    theme: &VisualTheme,
+) -> Result<(), FramebufferError> {
+    if frame.width() < 3 {
+        return frame.set(center_x, y, creature_center_cell(load, theme));
+    }
 
-    let color = if load >= 0.75 {
+    let center_x = center_x.clamp(1, frame.width().saturating_sub(2));
+    let (left, body, right) = creature_sprite(load, theme);
+    let color = creature_color(load, theme);
+
+    frame.set(center_x - 1, y, Cell::new(left, color, theme.sky))?;
+    frame.set(center_x, y, Cell::new(body, color, theme.sky))?;
+    frame.set(center_x + 1, y, Cell::new(right, color, theme.sky))?;
+
+    Ok(())
+}
+
+fn creature_center_cell(load: f32, theme: &VisualTheme) -> Cell {
+    Cell::new(
+        creature_sprite(load, theme).1,
+        creature_color(load, theme),
+        theme.sky,
+    )
+}
+
+fn creature_sprite(load: f32, theme: &VisualTheme) -> (char, char, char) {
+    if load >= 0.75 {
+        (
+            theme.creature_busy_left,
+            theme.creature_busy,
+            theme.creature_busy_right,
+        )
+    } else if load >= 0.35 {
+        (
+            theme.creature_active_left,
+            theme.creature_active,
+            theme.creature_active_right,
+        )
+    } else {
+        (
+            theme.creature_idle_left,
+            theme.creature_idle,
+            theme.creature_idle_right,
+        )
+    }
+}
+
+fn creature_color(load: f32, theme: &VisualTheme) -> Color {
+    if load >= 0.75 {
         theme.creature_busy_color
     } else {
         theme.creature_color
-    };
-    Cell::new(glyph, color, theme.sky)
+    }
 }

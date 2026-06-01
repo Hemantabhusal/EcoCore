@@ -281,7 +281,7 @@ fn runtime_default_targets_thirty_frames_per_second() {
 #[test]
 fn animated_landscape_changes_incrementally_between_ticks() {
     let previous = build_landscape_frame(20, 8, 0).expect("valid previous frame");
-    let current = build_landscape_frame(20, 8, 1).expect("valid current frame");
+    let current = build_landscape_frame(20, 8, 2).expect("valid current frame");
 
     let output = AnsiDiffEncoder::new()
         .encode_diff(&previous, &current)
@@ -303,8 +303,16 @@ fn landscape_maps_cpu_activity_to_stable_creature_intensity() {
         build_landscape_frame_with_activity(32, 10, 0, &activity).expect("valid active frame");
 
     assert_eq!(
-        frame.get(8, 5).expect("idle creature").glyph,
+        frame.get(7, 5).expect("idle creature left").glyph,
+        theme.creature_idle_left
+    );
+    assert_eq!(
+        frame.get(8, 5).expect("idle creature body").glyph,
         theme.creature_idle
+    );
+    assert_eq!(
+        frame.get(9, 5).expect("idle creature right").glyph,
+        theme.creature_idle_right
     );
     assert_eq!(
         frame.get(16, 5).expect("active creature").glyph,
@@ -331,7 +339,15 @@ fn default_visual_theme_replaces_phase_two_placeholder_glyphs() {
     assert_eq!(theme.weather_write, '✦');
     assert_eq!(theme.weather_mixed, '✶');
     assert_eq!(theme.vegetation_high, '♣');
-    assert_eq!(theme.creature_busy, '◆');
+    assert_eq!(theme.creature_idle_left, '▗');
+    assert_eq!(theme.creature_idle, '▄');
+    assert_eq!(theme.creature_idle_right, '▖');
+    assert_eq!(theme.creature_active_left, '▐');
+    assert_eq!(theme.creature_active, '▄');
+    assert_eq!(theme.creature_active_right, '▌');
+    assert_eq!(theme.creature_busy_left, '▟');
+    assert_eq!(theme.creature_busy, '█');
+    assert_eq!(theme.creature_busy_right, '▙');
 }
 
 #[test]
@@ -627,7 +643,7 @@ fn active_cpu_creatures_drift_one_cell_without_leaving_bounds() {
     let first_frame =
         build_landscape_frame_with_activity(24, 10, 0, &activity).expect("valid first frame");
     let second_frame =
-        build_landscape_frame_with_activity(24, 10, 1, &activity).expect("valid second frame");
+        build_landscape_frame_with_activity(24, 10, 4, &activity).expect("valid second frame");
 
     assert_eq!(
         first_frame.get(12, 5).expect("center creature").glyph,
@@ -636,6 +652,28 @@ fn active_cpu_creatures_drift_one_cell_without_leaving_bounds() {
     assert_eq!(
         second_frame.get(13, 5).expect("drifted creature").glyph,
         theme.creature_busy
+    );
+}
+
+#[test]
+fn active_cpu_creatures_hold_sprite_shape_across_adjacent_ticks() {
+    let activity = SceneActivity::from_core_loads(vec![0.95]);
+    let previous =
+        build_landscape_frame_with_activity(24, 10, 0, &activity).expect("valid first frame");
+    let current =
+        build_landscape_frame_with_activity(24, 10, 1, &activity).expect("valid second frame");
+    let output = AnsiDiffEncoder::new()
+        .encode_diff(&previous, &current)
+        .expect("matching creature frames");
+
+    assert_eq!(
+        creature_sprite_on_row(&previous, 5),
+        creature_sprite_on_row(&current, 5)
+    );
+    assert!(
+        output.changed_cells <= 8,
+        "stable creature sprite should avoid harsh flicker, changed {} cells",
+        output.changed_cells
     );
 }
 
@@ -711,6 +749,15 @@ fn count_glyphs_on_row(frame: &Framebuffer, y: u16, glyph: char) -> usize {
 fn glyph_positions_on_row(frame: &Framebuffer, y: u16, glyph: char) -> Vec<u16> {
     (0..frame.width())
         .filter(|x| frame.get(*x, y).is_some_and(|cell| cell.glyph == glyph))
+        .collect()
+}
+
+fn creature_sprite_on_row(frame: &Framebuffer, y: u16) -> Vec<char> {
+    (0..frame.width())
+        .filter_map(|x| {
+            let glyph = frame.get(x, y)?.glyph;
+            (glyph != ' ').then_some(glyph)
+        })
         .collect()
 }
 
