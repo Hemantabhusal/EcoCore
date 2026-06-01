@@ -320,6 +320,9 @@ fn landscape_maps_cpu_activity_to_stable_creature_intensity() {
 fn default_visual_theme_replaces_phase_two_placeholder_glyphs() {
     let theme = VisualTheme::default();
 
+    assert_ne!(theme.sky_top, theme.sky_horizon);
+    assert_eq!(theme.horizon_marker, '·');
+    assert_eq!(theme.shore, '▔');
     assert_eq!(theme.water_idle, '≈');
     assert_eq!(theme.water_download, '›');
     assert_eq!(theme.water_upload, '‹');
@@ -329,6 +332,25 @@ fn default_visual_theme_replaces_phase_two_placeholder_glyphs() {
     assert_eq!(theme.weather_mixed, '✶');
     assert_eq!(theme.vegetation_high, '♣');
     assert_eq!(theme.creature_busy, '◆');
+}
+
+#[test]
+fn landscape_renders_depth_bands_and_shoreline_before_activity_layers() {
+    let activity = SceneActivity::default();
+    let theme = VisualTheme::default();
+    let frame =
+        build_landscape_frame_with_activity(24, 12, 0, &activity).expect("valid layered frame");
+
+    assert_eq!(frame.get(0, 0).expect("upper sky").bg, theme.sky_top);
+    assert_eq!(frame.get(0, 4).expect("middle sky").bg, theme.sky_mid);
+    assert_eq!(frame.get(0, 8).expect("horizon sky").bg, theme.sky_horizon);
+    assert_eq!(
+        frame.get(6, 8).expect("horizon marker").glyph,
+        theme.horizon_marker
+    );
+    assert_eq!(frame.get(1, 9).expect("shoreline").glyph, theme.shore);
+    assert_eq!(frame.get(1, 10).expect("water").glyph, theme.water_idle);
+    assert_eq!(frame.get(0, 11).expect("ground").glyph, theme.ground);
 }
 
 #[test]

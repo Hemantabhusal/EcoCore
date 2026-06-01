@@ -12,14 +12,21 @@ const VEGETATION: Color = Color::rgb(95, 190, 105);
 pub struct VisualTheme {
     pub sky_text: Color,
     pub sky: Color,
+    pub sky_top: Color,
+    pub sky_mid: Color,
+    pub sky_horizon: Color,
     pub ground_text: Color,
     pub ground_background: Color,
+    pub horizon_color: Color,
+    pub shore_color: Color,
     pub water_color: Color,
     pub creature_color: Color,
     pub creature_busy_color: Color,
     pub vegetation_color: Color,
     pub weather_color: Color,
     pub ground: char,
+    pub horizon_marker: char,
+    pub shore: char,
     pub water_idle: char,
     pub water_download: char,
     pub water_upload: char,
@@ -40,14 +47,21 @@ impl Default for VisualTheme {
         Self {
             sky_text: Color::rgb(126, 164, 190),
             sky: SKY,
+            sky_top: Color::rgb(5, 12, 25),
+            sky_mid: Color::rgb(8, 22, 42),
+            sky_horizon: Color::rgb(18, 38, 58),
             ground_text: Color::rgb(103, 160, 94),
             ground_background: GROUND,
+            horizon_color: Color::rgb(78, 112, 125),
+            shore_color: Color::rgb(76, 118, 92),
             water_color: WATER,
             creature_color: CREATURE,
             creature_busy_color: BUSY_CREATURE,
             vegetation_color: VEGETATION,
             weather_color: Color::rgb(150, 190, 220),
             ground: '▄',
+            horizon_marker: '·',
+            shore: '▔',
             water_idle: '≈',
             water_download: '›',
             water_upload: '‹',
@@ -104,8 +118,11 @@ pub fn build_landscape_frame_with_theme(
 
     let ground_y = height - 1;
     let water_y = height - 2;
+    let shore_y = height.saturating_sub(3);
     let creature_origin_y = height / 2;
 
+    draw_sky(&mut frame, theme)?;
+    draw_horizon(&mut frame, shore_y, theme)?;
     for x in 0..width {
         frame.set(
             x,
@@ -120,12 +137,66 @@ pub fn build_landscape_frame_with_theme(
             Cell::new(water_glyph, theme.water_color, theme.sky),
         )?;
     }
+    draw_shoreline(&mut frame, shore_y, theme)?;
 
     draw_weather(&mut frame, activity, theme)?;
     draw_vegetation(&mut frame, activity, theme)?;
     draw_creatures(&mut frame, creature_origin_y, tick, activity, theme)?;
 
     Ok(frame)
+}
+
+fn draw_sky(frame: &mut Framebuffer, theme: &VisualTheme) -> Result<(), FramebufferError> {
+    for y in 0..frame.height() {
+        let bg = sky_background(y, frame.height(), theme);
+        for x in 0..frame.width() {
+            frame.set(x, y, Cell::new(' ', theme.sky_text, bg))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn draw_horizon(
+    frame: &mut Framebuffer,
+    shore_y: u16,
+    theme: &VisualTheme,
+) -> Result<(), FramebufferError> {
+    if shore_y < 2 {
+        return Ok(());
+    }
+
+    let horizon_y = shore_y - 1;
+    for x in (0..frame.width()).step_by(6) {
+        frame.set(
+            x,
+            horizon_y,
+            Cell::new(theme.horizon_marker, theme.horizon_color, theme.sky_horizon),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn draw_shoreline(
+    frame: &mut Framebuffer,
+    shore_y: u16,
+    theme: &VisualTheme,
+) -> Result<(), FramebufferError> {
+    for x in 0..frame.width() {
+        let glyph = if x.is_multiple_of(5) {
+            theme.vegetation_low
+        } else {
+            theme.shore
+        };
+        frame.set(
+            x,
+            shore_y,
+            Cell::new(glyph, theme.shore_color, theme.sky_horizon),
+        )?;
+    }
+
+    Ok(())
 }
 
 fn draw_weather(
@@ -161,6 +232,19 @@ fn draw_weather(
     }
 
     Ok(())
+}
+
+fn sky_background(y: u16, height: u16, theme: &VisualTheme) -> Color {
+    let horizon_start = height.saturating_mul(2) / 3;
+    let mid_start = height / 3;
+
+    if y >= horizon_start {
+        theme.sky_horizon
+    } else if y >= mid_start {
+        theme.sky_mid
+    } else {
+        theme.sky_top
+    }
 }
 
 fn draw_vegetation(
