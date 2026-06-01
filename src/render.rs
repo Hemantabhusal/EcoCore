@@ -35,9 +35,11 @@ pub struct VisualTheme {
     pub weather_write: char,
     pub weather_mixed: char,
     pub sky_mote: char,
+    pub vegetation_left: char,
     pub vegetation_low: char,
     pub vegetation_mid: char,
     pub vegetation_high: char,
+    pub vegetation_right: char,
     pub creature_idle_left: char,
     pub creature_idle: char,
     pub creature_idle_right: char,
@@ -70,16 +72,18 @@ impl Default for VisualTheme {
             horizon_marker: '·',
             shore: '▔',
             water_idle: '≈',
-            water_download: '›',
-            water_upload: '‹',
+            water_download: '∿',
+            water_upload: '∽',
             water_bidirectional: '≋',
-            weather_read: '∙',
-            weather_write: '✦',
-            weather_mixed: '✶',
+            weather_read: '⋅',
+            weather_write: '✧',
+            weather_mixed: '✦',
             sky_mote: '˙',
+            vegetation_left: '▟',
             vegetation_low: '╷',
             vegetation_mid: '♧',
             vegetation_high: '♣',
+            vegetation_right: '▙',
             creature_idle_left: '▗',
             creature_idle: '▄',
             creature_idle_right: '▖',
@@ -153,7 +157,7 @@ pub fn build_landscape_frame_with_theme(
     }
     draw_shoreline(&mut frame, shore_y, tick, theme)?;
 
-    draw_weather(&mut frame, activity, theme)?;
+    draw_weather(&mut frame, tick, activity, theme)?;
     draw_vegetation(&mut frame, activity, theme)?;
     draw_creatures(&mut frame, creature_origin_y, tick, activity, theme)?;
 
@@ -283,6 +287,7 @@ fn organic_hash(x: u16, salt: u16, phase: u64) -> u16 {
 
 fn draw_weather(
     frame: &mut Framebuffer,
+    tick: u64,
     activity: &SceneActivity,
     theme: &VisualTheme,
 ) -> Result<(), FramebufferError> {
@@ -302,10 +307,12 @@ fn draw_weather(
     let particle_count = (max_particles as f32 * intensity).round() as usize;
     let weather_y = (frame.height() / 4).max(1);
     let glyph = weather_glyph(activity, theme);
+    let phase = tick / 8;
 
     for index in 0..particle_count {
         let base_x = ((index + 1) * usize::from(frame.width())) / (particle_count + 1);
-        let x = base_x.min(usize::from(frame.width().saturating_sub(1))) as u16;
+        let drift = (organic_hash(index as u16, 47, phase) % 3) as i16 - 1;
+        let x = (base_x as i16 + drift).clamp(0, frame.width().saturating_sub(1) as i16) as u16;
         frame.set(
             x,
             weather_y,
@@ -347,12 +354,49 @@ fn draw_vegetation(
 
     for index in 0..plant_count {
         let x = ((index + 1) * usize::from(frame.width())) / (plant_count + 1);
-        frame.set(
+        draw_growth_cluster(
+            frame,
             x.min(usize::from(frame.width().saturating_sub(1))) as u16,
             vegetation_y,
-            Cell::new(glyph, theme.vegetation_color, theme.sky),
+            glyph,
+            theme,
         )?;
     }
+
+    Ok(())
+}
+
+fn draw_growth_cluster(
+    frame: &mut Framebuffer,
+    center_x: u16,
+    y: u16,
+    center_glyph: char,
+    theme: &VisualTheme,
+) -> Result<(), FramebufferError> {
+    if frame.width() < 3 {
+        return frame.set(
+            center_x,
+            y,
+            Cell::new(center_glyph, theme.vegetation_color, theme.sky),
+        );
+    }
+
+    let center_x = center_x.clamp(1, frame.width().saturating_sub(2));
+    frame.set(
+        center_x - 1,
+        y,
+        Cell::new(theme.vegetation_left, theme.vegetation_color, theme.sky),
+    )?;
+    frame.set(
+        center_x,
+        y,
+        Cell::new(center_glyph, theme.vegetation_color, theme.sky),
+    )?;
+    frame.set(
+        center_x + 1,
+        y,
+        Cell::new(theme.vegetation_right, theme.vegetation_color, theme.sky),
+    )?;
 
     Ok(())
 }
@@ -382,7 +426,7 @@ fn draw_creatures(
         let lane_size = creature_count
             .saturating_sub(lane * creatures_per_lane)
             .min(creatures_per_lane);
-        let x = creature_x(lane_slot, lane_size, width, load, tick);
+        let x = creature_x(lane_slot, lane_size, width, load, tick, index);
         let y = (lane_start_y + lane as u16).min(frame.height().saturating_sub(3));
         draw_creature_sprite(frame, x, y, load, theme)?;
     }
@@ -402,22 +446,21 @@ fn water_glyph(x: u16, tick: u64, activity: &SceneActivity, theme: &VisualTheme)
     let download = activity.network_download();
     let upload = activity.network_upload();
     let ambient_phase = u64::from(x) + (tick / 2);
-    let activity_phase = u64::from(x) + (tick / 2);
 
     if download >= 0.35 && upload >= 0.35 {
-        if activity_phase.is_multiple_of(3) {
+        if active_wave_gap(x, tick, 83) {
             theme.water_idle
         } else {
             theme.water_bidirectional
         }
     } else if download >= 0.35 && download >= upload {
-        if activity_phase.is_multiple_of(5) {
+        if active_wave_gap(x, tick, 61) {
             theme.water_idle
         } else {
             theme.water_download
         }
     } else if upload >= 0.35 {
-        if activity_phase.is_multiple_of(5) {
+        if active_wave_gap(x, tick, 67) {
             theme.water_idle
         } else {
             theme.water_upload
@@ -427,6 +470,16 @@ fn water_glyph(x: u16, tick: u64, activity: &SceneActivity, theme: &VisualTheme)
     } else {
         theme.water_idle
     }
+}
+
+fn active_wave_gap(x: u16, tick: u64, salt: u16) -> bool {
+    let phase = tick / 3;
+    let hash_gap = organic_hash(x, salt, phase).is_multiple_of(11);
+    let slow_gap = x
+        .wrapping_add((phase as u16).wrapping_mul(3))
+        .is_multiple_of(17);
+
+    hash_gap || slow_gap
 }
 
 fn weather_glyph(activity: &SceneActivity, theme: &VisualTheme) -> char {
@@ -470,9 +523,16 @@ fn creature_lane_count(creature_count: usize, height: u16) -> usize {
     }
 }
 
-fn creature_x(index: usize, creature_count: usize, width: u16, load: f32, tick: u64) -> u16 {
+fn creature_x(
+    index: usize,
+    creature_count: usize,
+    width: u16,
+    load: f32,
+    tick: u64,
+    phase_index: usize,
+) -> u16 {
     if creature_count == 1 {
-        return drifted_x(width / 2, width, load, tick);
+        return drifted_x(width / 2, width, load, tick, phase_index);
     }
 
     let width = usize::from(width);
@@ -482,17 +542,18 @@ fn creature_x(index: usize, creature_count: usize, width: u16, load: f32, tick: 
         width as u16,
         load,
         tick,
+        phase_index,
     )
 }
 
-fn drifted_x(base_x: u16, width: u16, load: f32, tick: u64) -> u16 {
-    if load < 0.35 {
+fn drifted_x(base_x: u16, width: u16, load: f32, tick: u64, phase_index: usize) -> u16 {
+    if load < 0.35 || tick == 0 {
         return base_x;
     }
 
     // Movement is deliberately capped to one cell. It gives active cores life
     // while keeping ANSI diffs small and preventing layout jitter.
-    let offset = match (tick / 4) % 4 {
+    let offset = match ((tick / 4) + phase_index as u64) % 6 {
         1 => 1_i16,
         3 => -1_i16,
         _ => 0_i16,

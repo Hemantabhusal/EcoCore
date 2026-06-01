@@ -332,13 +332,15 @@ fn default_visual_theme_replaces_phase_two_placeholder_glyphs() {
     assert_eq!(theme.horizon_marker, '·');
     assert_eq!(theme.shore, '▔');
     assert_eq!(theme.water_idle, '≈');
-    assert_eq!(theme.water_download, '›');
-    assert_eq!(theme.water_upload, '‹');
+    assert_eq!(theme.water_download, '∿');
+    assert_eq!(theme.water_upload, '∽');
     assert_eq!(theme.water_bidirectional, '≋');
-    assert_eq!(theme.weather_read, '∙');
-    assert_eq!(theme.weather_write, '✦');
-    assert_eq!(theme.weather_mixed, '✶');
+    assert_eq!(theme.weather_read, '⋅');
+    assert_eq!(theme.weather_write, '✧');
+    assert_eq!(theme.weather_mixed, '✦');
+    assert_eq!(theme.vegetation_left, '▟');
     assert_eq!(theme.vegetation_high, '♣');
+    assert_eq!(theme.vegetation_right, '▙');
     assert_eq!(theme.creature_idle_left, '▗');
     assert_eq!(theme.creature_idle, '▄');
     assert_eq!(theme.creature_idle_right, '▖');
@@ -484,6 +486,26 @@ fn landscape_maps_memory_pressure_to_bounded_vegetation_density() {
 }
 
 #[test]
+fn memory_pressure_draws_growth_clusters_instead_of_single_plants() {
+    let activity = SceneActivity::default().with_memory_pressure(1.0);
+    let theme = VisualTheme::default();
+    let frame =
+        build_landscape_frame_with_activity(32, 12, 0, &activity).expect("valid growth frame");
+    let growth_y = 9;
+    let centers = count_glyphs_on_row(&frame, growth_y, theme.vegetation_high);
+
+    assert!(centers >= 6);
+    assert_eq!(
+        count_glyphs_on_row(&frame, growth_y, theme.vegetation_left),
+        centers
+    );
+    assert_eq!(
+        count_glyphs_on_row(&frame, growth_y, theme.vegetation_right),
+        centers
+    );
+}
+
+#[test]
 fn landscape_maps_network_flow_to_directional_water() {
     let download_activity = SceneActivity::default().with_network_flow(1.0, 0.0);
     let upload_activity = SceneActivity::default().with_network_flow(0.0, 1.0);
@@ -503,6 +525,35 @@ fn landscape_maps_network_flow_to_directional_water() {
 }
 
 #[test]
+fn network_flow_uses_soft_wave_glyphs_instead_of_arrowheads() {
+    let theme = VisualTheme::default();
+
+    assert_ne!(theme.water_download, '›');
+    assert_ne!(theme.water_upload, '‹');
+    assert_eq!(theme.water_download, '∿');
+    assert_eq!(theme.water_upload, '∽');
+}
+
+#[test]
+fn active_network_water_uses_irregular_wave_gaps() {
+    let activity = SceneActivity::default().with_network_flow(1.0, 0.0);
+    let theme = VisualTheme::default();
+    let frame =
+        build_landscape_frame_with_activity(80, 24, 0, &activity).expect("valid network frame");
+    let water_y = 22;
+    let idle_gaps = glyph_positions_on_row(&frame, water_y, theme.water_idle);
+    let gaps: Vec<u16> = idle_gaps
+        .windows(2)
+        .map(|window| window[1] - window[0])
+        .collect();
+
+    assert!(
+        gaps.windows(2).any(|window| window[0] != window[1]),
+        "active water gaps should not read as fixed ruler ticks: {gaps:?}"
+    );
+}
+
+#[test]
 fn landscape_maps_disk_activity_to_bounded_weather() {
     let read_activity = SceneActivity::default().with_disk_activity(1.0, 0.0);
     let write_activity = SceneActivity::default().with_disk_activity(0.0, 1.0);
@@ -519,6 +570,32 @@ fn landscape_maps_disk_activity_to_bounded_weather() {
     assert_eq!(count_glyphs_on_row(&read_frame, 2, theme.weather_read), 5);
     assert_eq!(count_glyphs_on_row(&write_frame, 2, theme.weather_write), 5);
     assert_eq!(count_glyphs_on_row(&mixed_frame, 2, theme.weather_mixed), 5);
+}
+
+#[test]
+fn disk_activity_sparks_drift_slowly_without_full_redraw() {
+    let activity = SceneActivity::default().with_disk_activity(1.0, 1.0);
+    let theme = VisualTheme::default();
+    let previous =
+        build_landscape_frame_with_activity(80, 24, 0, &activity).expect("valid previous frame");
+    let current =
+        build_landscape_frame_with_activity(80, 24, 8, &activity).expect("valid current frame");
+    let previous_sparks = glyph_positions_on_row(&previous, 6, theme.weather_mixed);
+    let current_sparks = glyph_positions_on_row(&current, 6, theme.weather_mixed);
+    let output = AnsiDiffEncoder::new()
+        .encode_diff(&previous, &current)
+        .expect("matching spark frames");
+
+    assert_eq!(previous_sparks.len(), current_sparks.len());
+    assert_ne!(
+        previous_sparks, current_sparks,
+        "disk sparks should drift, not stay pinned to a ruler"
+    );
+    assert!(
+        output.changed_cells <= 96,
+        "spark drift should stay bounded, changed {} cells",
+        output.changed_cells
+    );
 }
 
 #[test]
@@ -575,10 +652,8 @@ fn full_ecosystem_scene_keeps_layers_readable_and_output_bounded() {
 
     assert_eq!(count_glyphs_on_row(&current, 3, theme.weather_mixed), 10);
     assert_eq!(count_glyphs_on_row(&current, 11, theme.vegetation_high), 10);
-    assert_eq!(
-        count_glyphs_on_row(&current, 12, theme.water_bidirectional),
-        26
-    );
+    let active_water = count_glyphs_on_row(&current, 12, theme.water_bidirectional);
+    assert!((24..=34).contains(&active_water));
     assert_eq!(count_glyphs_on_row(&current, 13, theme.ground), 40);
     assert_eq!(count_glyphs(&current, theme.creature_busy), 8);
     assert!(
@@ -674,6 +749,30 @@ fn active_cpu_creatures_hold_sprite_shape_across_adjacent_ticks() {
         output.changed_cells <= 8,
         "stable creature sprite should avoid harsh flicker, changed {} cells",
         output.changed_cells
+    );
+}
+
+#[test]
+fn active_cpu_creature_motion_is_staggered_across_cores() {
+    let activity = SceneActivity::from_core_loads(vec![0.95, 0.95, 0.95]);
+    let theme = VisualTheme::default();
+    let previous =
+        build_landscape_frame_with_activity(36, 12, 0, &activity).expect("valid previous frame");
+    let current =
+        build_landscape_frame_with_activity(36, 12, 4, &activity).expect("valid current frame");
+    let previous_centers = glyph_positions_on_row(&previous, 6, theme.creature_busy);
+    let current_centers = glyph_positions_on_row(&current, 6, theme.creature_busy);
+    let shifts: Vec<i16> = previous_centers
+        .iter()
+        .zip(current_centers.iter())
+        .map(|(previous, current)| *current as i16 - *previous as i16)
+        .collect();
+
+    assert_eq!(previous_centers.len(), 3);
+    assert_eq!(current_centers.len(), 3);
+    assert!(
+        shifts.windows(2).any(|window| window[0] != window[1]),
+        "creature motion should be staggered across cores, got shifts {shifts:?}"
     );
 }
 
