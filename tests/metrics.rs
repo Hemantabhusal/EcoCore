@@ -1,6 +1,7 @@
 use ecosystem::{
     diagnostics::TraceCollector,
     metrics::cpu::{CpuSampler, CpuSamplerStatus, calculate_cpu_usage, parse_proc_stat},
+    metrics::memory::{MemorySampler, calculate_memory_pressure, parse_meminfo},
 };
 
 const PROC_STAT_PREVIOUS: &str = "\
@@ -17,6 +18,19 @@ cpu0 50 0 20 530 5 0 0 0 0 0
 cpu1 80 0 50 530 5 0 0 0 0 0
 intr 3
 ctxt 4
+";
+
+const MEMINFO_NORMAL: &str = "\
+MemTotal:       1000000 kB
+MemFree:         100000 kB
+MemAvailable:    250000 kB
+Buffers:          10000 kB
+Cached:          200000 kB
+";
+
+const MEMINFO_PRESSURE: &str = "\
+MemTotal:       1000000 kB
+MemAvailable:     50000 kB
 ";
 
 #[test]
@@ -120,4 +134,69 @@ fn cpu_sampler_emits_usage_after_second_sample() {
             .iter()
             .any(|event| event.message.contains("sampled usage for 2 cores"))
     );
+}
+
+#[test]
+fn meminfo_parser_extracts_total_and_available_memory() {
+    let sample = parse_meminfo(MEMINFO_NORMAL).expect("valid meminfo fixture");
+
+    assert_eq!(sample.total_kib, 1_000_000);
+    assert_eq!(sample.available_kib, 250_000);
+}
+
+#[test]
+fn memory_pressure_uses_available_memory_instead_of_free_memory() {
+    let sample = parse_meminfo(MEMINFO_NORMAL).expect("valid meminfo fixture");
+
+    let pressure = calculate_memory_pressure(&sample).expect("valid pressure");
+
+    assert!((pressure.value - 0.75).abs() < f32::EPSILON);
+}
+
+#[test]
+fn memory_pressure_clamps_available_memory_above_total() {
+    let sample = parse_meminfo(
+        "\
+MemTotal:       1000000 kB
+MemAvailable:  1200000 kB
+",
+    )
+    .expect("available above total still parses");
+
+    let pressure = calculate_memory_pressure(&sample).expect("valid pressure");
+
+    assert_eq!(pressure.value, 0.0);
+}
+
+#[test]
+fn meminfo_parser_reports_missing_available_memory() {
+    let error = parse_meminfo("MemTotal: 1000000 kB\n").expect_err("missing MemAvailable");
+
+    assert_eq!(error.to_string(), "missing MemAvailable in /proc/meminfo");
+}
+
+#[test]
+fn meminfo_parser_reports_invalid_numeric_values() {
+    let error = parse_meminfo("MemTotal: nope kB\nMemAvailable: 1 kB\n")
+        .expect_err("invalid MemTotal value");
+
+    assert_eq!(
+        error.to_string(),
+        "invalid MemTotal value 'nope' in /proc/meminfo"
+    );
+}
+
+#[test]
+fn memory_sampler_emits_current_pressure_and_trace_event() {
+    let mut sampler = MemorySampler;
+    let mut traces = TraceCollector::enabled();
+
+    let pressure = sampler
+        .sample_from_meminfo(MEMINFO_PRESSURE, &mut traces)
+        .expect("valid pressure sample");
+
+    assert!((pressure.value - 0.95).abs() < f32::EPSILON);
+    assert!(traces.snapshot().iter().any(|event| {
+        event.target == "metrics.memory" && event.message.contains("sampled pressure 0.95")
+    }));
 }

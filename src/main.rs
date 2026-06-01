@@ -11,6 +11,7 @@ use ecosystem::{
     framebuffer::{Cell, Framebuffer},
     input::{EngineAction, key_event_to_action},
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
+    metrics::memory::MemorySampler,
     render::{SceneActivity, build_landscape_frame, build_landscape_frame_with_activity},
     runtime::{FrameStats, ResizeDebouncer, ResizeDecision, RuntimeConfig},
     terminal::{
@@ -68,6 +69,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     let frame_duration = config.frame_duration();
     let mut next_frame_at = Instant::now() + frame_duration;
     let mut cpu_sampler = CpuSampler::default();
+    let mut memory_sampler = MemorySampler;
     let mut scene_activity = SceneActivity::default();
     let mut next_metrics_at = Instant::now();
     let mut rendering_suspended = false;
@@ -94,6 +96,12 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                         format!("sample failed: {error}"),
                     ));
                 }
+            }
+            if let Err(error) = memory_sampler.sample_from_system(traces) {
+                traces.record(TraceEvent::new(
+                    "metrics.memory",
+                    format!("sample failed: {error}"),
+                ));
             }
             next_metrics_at = now + config.metrics_sample_interval;
         }
