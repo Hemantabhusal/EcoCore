@@ -2,11 +2,9 @@ use std::{error::Error, fmt};
 
 use crate::{
     diagnostics::{TraceCollector, TraceEvent},
-    framebuffer::{Cell, Framebuffer, FramebufferError},
-    render::build_static_landscape_frame,
     terminal::{
-        AnsiDiffEncoder, ColorCapability, EncodeOutput, TerminalColorEnvironment, TerminalSize,
-        TerminalValidationError, detect_color_capability, validate_terminal_environment,
+        ColorCapability, TerminalColorEnvironment, TerminalSize, TerminalValidationError,
+        detect_color_capability, validate_terminal_environment,
     },
 };
 
@@ -35,14 +33,12 @@ impl StartupEnvironment {
 #[derive(Debug)]
 pub enum AppError {
     Terminal(TerminalValidationError),
-    Framebuffer(FramebufferError),
 }
 
 impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Terminal(error) => error.fmt(f),
-            Self::Framebuffer(error) => error.fmt(f),
         }
     }
 }
@@ -55,16 +51,16 @@ impl From<TerminalValidationError> for AppError {
     }
 }
 
-impl From<FramebufferError> for AppError {
-    fn from(error: FramebufferError) -> Self {
-        Self::Framebuffer(error)
-    }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StartupReport {
+    pub terminal_size: TerminalSize,
+    pub color_capability: ColorCapability,
 }
 
-pub fn render_initial_frame(
+pub fn prepare_startup(
     environment: StartupEnvironment,
     traces: &mut TraceCollector,
-) -> Result<EncodeOutput, AppError> {
+) -> Result<StartupReport, AppError> {
     traces.record(TraceEvent::new(
         "startup",
         format!(
@@ -74,33 +70,23 @@ pub fn render_initial_frame(
     ));
 
     validate_terminal_environment(environment.stdout_is_terminal, environment.terminal_size)?;
-    record_color_capability(&environment, traces);
+    let color_capability = record_color_capability(&environment, traces);
 
     traces.record(TraceEvent::new(
         "startup",
-        "building static Phase 1 MVP frame",
+        "startup validated for pixel canvas graphics runtime",
     ));
 
-    let previous = Framebuffer::new(
-        environment.terminal_size.width,
-        environment.terminal_size.height,
-        Cell::blank(),
-    )?;
-    let current = build_static_landscape_frame(
-        environment.terminal_size.width,
-        environment.terminal_size.height,
-    )?;
-    let encoded = AnsiDiffEncoder::new().encode_diff(&previous, &current)?;
-
-    traces.record(TraceEvent::new(
-        "render",
-        format!("encoded {} changed cells", encoded.changed_cells),
-    ));
-
-    Ok(encoded)
+    Ok(StartupReport {
+        terminal_size: environment.terminal_size,
+        color_capability,
+    })
 }
 
-fn record_color_capability(environment: &StartupEnvironment, traces: &mut TraceCollector) {
+fn record_color_capability(
+    environment: &StartupEnvironment,
+    traces: &mut TraceCollector,
+) -> ColorCapability {
     let capability = detect_color_capability(&environment.color_environment);
     let message = match capability {
         ColorCapability::Truecolor => "truecolor capability detected".to_owned(),
@@ -112,4 +98,5 @@ fn record_color_capability(environment: &StartupEnvironment, traces: &mut TraceC
     };
 
     traces.record(TraceEvent::new("terminal.color", message));
+    capability
 }

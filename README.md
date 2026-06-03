@@ -4,21 +4,19 @@ Ecosystem is a Rust terminal graphics experiment that turns system activity into
 
 It is built for fun, visual experimentation, and smooth real-time terminal art. The goal is not to replace system monitors like `htop` or `btop`, but to make a terminal scene that feels alive.
 
-The current implementation is a Unicode renderer foundation. The long-term direction is a high-end graphics-capable terminal renderer using an internal pixel canvas and Kitty graphics protocol output.
+The current implementation has moved past the old Unicode art renderer. It now keeps the terminal/runtime foundation and introduces the RGB/RGBA canvas boundary that future Kitty graphics output will use.
 
 ## Current Shape
 
-The project currently renders a Unicode-based landscape with:
+The project currently contains:
 
-- Layered sky, horizon, shoreline, water, and ground.
-- Small block-based CPU creatures.
-- Memory growth clusters.
-- Network-driven water motion.
-- Disk activity sparks.
-- Diff-based ANSI rendering to avoid full-screen redraws.
-- Basic resize handling and terminal validation.
+- Terminal startup, cleanup, input, and resize handling.
+- Linux CPU, memory, network, and disk sampling.
+- Smoothed activity state for future visual systems.
+- RGB/RGBA canvas storage with dirty-region tracking.
+- Trace diagnostics for development and verification.
 
-The visual language is still evolving. Future work is moving away from direct glyph art toward a pixel-canvas renderer for modern graphics-capable terminals.
+The next renderer target is Kitty graphics protocol output from the internal pixel canvas.
 
 ## Run
 
@@ -47,13 +45,12 @@ cargo clippy --all-targets -- -D warnings
 ## Project Layout
 
 ```text
-src/render.rs       Visual scene construction, glyphs, colors, motion
-src/framebuffer.rs  Cell grid and color model
-src/terminal.rs     ANSI diff encoder and terminal session handling
-src/simulation.rs   Smoothed visual activity model
+src/canvas.rs       RGB/RGBA pixel canvas and dirty-region tracking
+src/terminal.rs     Terminal session, validation, and control sequences
+src/simulation.rs   Smoothed activity model for future visual systems
 src/metrics/        CPU, memory, network, and disk sampling
 src/main.rs         Runtime loop
-tests/              Renderer, terminal, runtime, and metric behavior tests
+tests/              Canvas, terminal, runtime, simulation, and metric tests
 ```
 
 ## Design Principles
@@ -66,6 +63,5 @@ tests/              Renderer, terminal, runtime, and metric behavior tests
 - Measure frame time, encode time, bytes sent, FPS, memory, and CPU.
 - Prefer deterministic motion over random effects.
 - Avoid harsh flicker.
-- Keep redraws bounded through framebuffer diffing.
 - Use dependencies carefully.
 - Keep visual changes testable.

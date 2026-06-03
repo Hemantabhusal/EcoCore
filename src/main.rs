@@ -6,20 +6,17 @@ use std::{
 
 use crossterm::event::{self, Event};
 use ecosystem::{
-    app::{StartupEnvironment, render_initial_frame},
+    app::{StartupEnvironment, prepare_startup},
     diagnostics::{TraceCollector, TraceEvent},
-    framebuffer::{Cell, Framebuffer},
     input::{EngineAction, key_event_to_action},
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
     metrics::disk::{DiskSampler, DiskSamplerStatus},
     metrics::memory::MemorySampler,
     metrics::network::{NetworkSampler, NetworkSamplerStatus},
-    render::{build_landscape_frame, build_landscape_frame_with_activity},
-    runtime::{FrameStats, ResizeDebouncer, ResizeDecision, RuntimeConfig},
+    runtime::{ResizeDebouncer, ResizeDecision, RuntimeConfig},
     simulation::{ActivitySmoother, SceneActivity},
     terminal::{
-        AnsiDiffEncoder, TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen,
-        current_terminal_size,
+        TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen, current_terminal_size,
     },
 };
 
@@ -48,27 +45,25 @@ fn main() -> ExitCode {
 fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error>> {
     let config = RuntimeConfig::default();
     let mut size = current_terminal_size()?;
-    let encoded = render_initial_frame(
+    let startup = prepare_startup(
         StartupEnvironment::new(io::stdout().is_terminal(), size),
         traces,
     )?;
     traces.record(TraceEvent::new(
-        "stdout",
-        format!("writing {} bytes", encoded.bytes.len()),
+        "graphics",
+        format!(
+            "pixel canvas runtime prepared for {}x{} terminal",
+            startup.terminal_size.width, startup.terminal_size.height
+        ),
     ));
 
     let stdout = io::stdout();
     let mut session = TerminalSession::start(stdout.lock(), TerminalSessionOptions::default())?;
-    session.writer_mut().write_all(&encoded.bytes)?;
-    session.writer_mut().flush()?;
     traces.record(TraceEvent::new(
         "input",
         "entering frame loop; press q or Esc to quit",
     ));
 
-    // Keep the last rendered frame so animation frames can be emitted as ANSI
-    // diffs. This is the core performance contract for the terminal renderer.
-    let mut previous_frame = build_landscape_frame(size.width, size.height, 0)?;
     let mut tick = 1_u64;
     let frame_duration = config.frame_duration();
     let mut next_frame_at = Instant::now() + frame_duration;
@@ -80,11 +75,9 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     let mut last_disk_sample_at = None;
     let mut target_activity = SceneActivity::default();
     let mut activity_smoother = ActivitySmoother::new(ACTIVITY_SMOOTHING_RESPONSE);
-    let mut scene_activity = SceneActivity::default();
     let mut next_metrics_at = Instant::now();
-    let mut rendering_suspended = false;
+    let mut output_suspended = false;
     let mut resize_debouncer = ResizeDebouncer::new(config.resize_debounce);
-    let mut frame_stats = FrameStats::default();
     traces.record(TraceEvent::new(
         "frame",
         format!("targeting {} fps", config.target_fps),
@@ -162,52 +155,32 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             match decision {
                 ResizeDecision::Redraw { size: new_size } => {
                     size = new_size;
-                    previous_frame =
-                        redraw_resized_frame(&mut session, size, tick, &scene_activity, traces)?;
-                    rendering_suspended = false;
+                    redraw_after_resize(&mut session, size, traces)?;
+                    output_suspended = false;
                     next_frame_at = Instant::now() + frame_duration;
                 }
                 ResizeDecision::Suspend { actual, minimum } => {
-                    render_resize_suspended_message(&mut session, actual, minimum, traces)?;
-                    rendering_suspended = true;
+                    suspend_for_unsupported_resize(&mut session, actual, minimum, traces)?;
+                    output_suspended = true;
                 }
             }
             continue;
         }
 
         if now >= next_frame_at {
-            if !rendering_suspended && resize_debouncer.ready_at().is_none() {
+            if !output_suspended && resize_debouncer.ready_at().is_none() {
                 // Metrics arrive at a lower cadence than frames. Smoothing here
-                // keeps the world responsive without snapping every sample tick.
-                scene_activity = activity_smoother.step_towards(&target_activity);
-                let current_frame = build_landscape_frame_with_activity(
-                    size.width,
-                    size.height,
-                    tick,
-                    &scene_activity,
-                )?;
-                let frame_output =
-                    AnsiDiffEncoder::new().encode_diff(&previous_frame, &current_frame)?;
-
-                if !frame_output.bytes.is_empty() {
-                    session.writer_mut().write_all(&frame_output.bytes)?;
-                    session.writer_mut().flush()?;
-                }
-
-                frame_stats.record_frame(frame_output.changed_cells, frame_output.bytes.len());
+                // keeps future canvas state responsive without snapping every sample tick.
+                let scene_activity = activity_smoother.step_towards(&target_activity);
                 if tick.is_multiple_of(u64::from(config.target_fps)) {
-                    let summary = frame_stats.take_summary();
                     traces.record(TraceEvent::new(
                         "frame",
                         format!(
-                            "tick {tick}: {} changed cells, {} bytes; {summary}",
-                            frame_output.changed_cells,
-                            frame_output.bytes.len()
+                            "tick {tick}: canvas backend pending, {} core signals",
+                            scene_activity.core_loads().len()
                         ),
                     ));
                 }
-
-                previous_frame = current_frame;
             }
 
             tick = tick.wrapping_add(1);
@@ -253,49 +226,36 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-fn redraw_resized_frame<W: Write>(
+fn redraw_after_resize<W: Write>(
     session: &mut TerminalSession<W>,
     size: TerminalSize,
-    tick: u64,
-    scene_activity: &SceneActivity,
     traces: &mut TraceCollector,
-) -> Result<Framebuffer, Box<dyn std::error::Error>> {
-    let blank = Framebuffer::new(size.width, size.height, Cell::blank())?;
-    let current =
-        build_landscape_frame_with_activity(size.width, size.height, tick, scene_activity)?;
-    let frame_output = AnsiDiffEncoder::new().encode_diff(&blank, &current)?;
-
-    // A resize invalidates the terminal's existing cell grid, so the next draw
-    // must clear and repaint the full framebuffer instead of applying a diff
-    // against the old dimensions.
+) -> io::Result<()> {
     session.writer_mut().write_all(clear_screen())?;
-    session.writer_mut().write_all(&frame_output.bytes)?;
     session.writer_mut().flush()?;
     traces.record(TraceEvent::new(
         "terminal.resize",
-        format!(
-            "redrew {}x{} frame with {} changed cells",
-            size.width, size.height, frame_output.changed_cells
-        ),
+        format!("accepted resized terminal {}x{}", size.width, size.height),
     ));
 
-    Ok(current)
+    Ok(())
 }
 
-fn render_resize_suspended_message<W: Write>(
+fn suspend_for_unsupported_resize<W: Write>(
     session: &mut TerminalSession<W>,
     actual: TerminalSize,
     minimum: TerminalSize,
     traces: &mut TraceCollector,
 ) -> io::Result<()> {
-    let message = format!(
-        "terminal too small: got {}x{}, minimum is {}x{}",
-        actual.width, actual.height, minimum.width, minimum.height
-    );
     session.writer_mut().write_all(clear_screen())?;
-    session.writer_mut().write_all(message.as_bytes())?;
     session.writer_mut().flush()?;
-    traces.record(TraceEvent::new("terminal.resize", message));
+    traces.record(TraceEvent::new(
+        "terminal.resize",
+        format!(
+            "suspended output for {}x{} terminal; minimum is {}x{}",
+            actual.width, actual.height, minimum.width, minimum.height
+        ),
+    ));
 
     Ok(())
 }
