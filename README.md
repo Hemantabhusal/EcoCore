@@ -32,7 +32,7 @@ Quit with `q` or `Esc`.
 
 A terminal of at least `80x24` is expected for the current renderer.
 
-Future high-end visuals will target modern terminals with graphics protocol support. Kitty graphics protocol support is the primary target; broad compatibility with old or limited terminals is not a project goal.
+Future high-end visuals will target modern terminals with Kitty graphics protocol support. GPU acceleration alone is not enough; the terminal must support an image/graphics protocol that the application can send frames to. Broad compatibility with old or limited terminals is not a project goal.
 
 ## Development
 
@@ -61,6 +61,9 @@ tests/              Renderer, terminal, runtime, and metric behavior tests
 - Target high-end terminal visuals instead of broad terminal compatibility.
 - Use a shared pixel canvas as the future art boundary.
 - Treat Kitty graphics protocol output as the primary future backend.
+- Do not add alternate render backends unless they solve a real implementation problem.
+- Keep simulation/update rates separate from display FPS.
+- Measure frame time, encode time, bytes sent, FPS, memory, and CPU.
 - Prefer deterministic motion over random effects.
 - Avoid harsh flicker.
 - Keep redraws bounded through framebuffer diffing.
