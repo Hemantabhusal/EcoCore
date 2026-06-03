@@ -2,7 +2,8 @@ use ecosystem::{
     canvas::{Canvas, Rgba},
     simulation::SceneActivity,
     visual::{
-        LayeredScene, ProbeCanvasConfig, ProbeScene, SceneFrame, SceneLayer, build_probe_canvas,
+        LayeredScene, LifeformField, ProbeCanvasConfig, ProbeScene, SceneFrame, SceneLayer,
+        build_probe_canvas,
     },
 };
 
@@ -95,8 +96,60 @@ fn probe_scene_exposes_named_internal_composition_layers() {
 
     assert_eq!(
         scene.layer_names(),
-        ["background_field", "activity_pulse", "flow_tint"]
+        [
+            "background_field",
+            "activity_pulse",
+            "lifeform_seeds",
+            "flow_tint"
+        ]
     );
+}
+
+#[test]
+fn lifeform_field_initializes_deterministically_inside_canvas() {
+    let field = LifeformField::new(6, ProbeCanvasConfig::new(32, 18));
+    let snapshots = field.snapshots();
+
+    assert_eq!(snapshots.len(), 6);
+    assert!(snapshots.iter().all(|seed| seed.x >= 0.0 && seed.x < 32.0));
+    assert!(snapshots.iter().all(|seed| seed.y >= 0.0 && seed.y < 18.0));
+    assert!(snapshots.iter().all(|seed| seed.energy > 0.0));
+    assert_eq!(
+        snapshots,
+        LifeformField::new(6, ProbeCanvasConfig::new(32, 18)).snapshots()
+    );
+}
+
+#[test]
+fn lifeform_field_moves_seeds_without_leaving_canvas_bounds() {
+    let mut field = LifeformField::new(4, ProbeCanvasConfig::new(32, 18));
+    let before = field.snapshots();
+
+    field.update(
+        1,
+        &SceneActivity::from_core_loads(vec![1.0]).with_network_flow(0.5, 0.0),
+    );
+    let after = field.snapshots();
+
+    assert_ne!(after, before);
+    assert!(after.iter().all(|seed| seed.x >= 0.0 && seed.x < 32.0));
+    assert!(after.iter().all(|seed| seed.y >= 0.0 && seed.y < 18.0));
+}
+
+#[test]
+fn probe_scene_lifeform_layer_changes_pixels_over_time() {
+    let mut scene = ProbeScene::new(ProbeCanvasConfig::new(32, 18)).expect("valid probe scene");
+
+    let first = scene.render(0, &SceneActivity::default()).pixels().to_vec();
+    let second = scene
+        .render(
+            12,
+            &SceneActivity::from_core_loads(vec![0.8]).with_network_flow(0.4, 0.0),
+        )
+        .pixels()
+        .to_vec();
+
+    assert_ne!(second, first);
 }
 
 #[test]

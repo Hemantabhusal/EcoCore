@@ -22,7 +22,7 @@ pub struct ProbeScene {
 impl ProbeScene {
     pub fn new(config: ProbeCanvasConfig) -> Result<Self, CanvasError> {
         Ok(Self {
-            scene: LayeredScene::new(config, probe_layers())?,
+            scene: LayeredScene::new(config, probe_layers(config))?,
         })
     }
 
@@ -138,19 +138,125 @@ pub fn build_probe_canvas(
     activity: &SceneActivity,
 ) -> Result<Canvas, CanvasError> {
     let mut canvas = Canvas::new(config.width, config.height, Rgba::rgb(0, 0, 0))?;
-    for mut layer in probe_layers() {
+    for mut layer in probe_layers(config) {
         layer.render(&mut canvas, SceneFrame::new(tick, activity));
     }
     canvas.clear_dirty();
     Ok(canvas)
 }
 
-fn probe_layers() -> Vec<Box<dyn SceneLayer>> {
+fn probe_layers(config: ProbeCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
     vec![
         Box::new(BackgroundFieldLayer),
         Box::new(ActivityPulseLayer),
+        Box::new(LifeformSeedLayer::new(config)),
         Box::new(FlowTintLayer),
     ]
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LifeformSnapshot {
+    pub x: f32,
+    pub y: f32,
+    pub energy: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LifeformField {
+    bounds: ProbeCanvasConfig,
+    seeds: Vec<LifeformSeed>,
+}
+
+impl LifeformField {
+    pub fn new(count: usize, bounds: ProbeCanvasConfig) -> Self {
+        let width = f32::from(bounds.width.max(1));
+        let height = f32::from(bounds.height.max(1));
+        let mut seeds = Vec::with_capacity(count);
+
+        for index in 0..count {
+            let phase = index as f32 * 1.618_034;
+            let x = ((phase.sin() * 0.5 + 0.5) * (width - 1.0)).clamp(0.0, width - 1.0);
+            let y = ((phase.cos() * 0.5 + 0.5) * (height - 1.0)).clamp(0.0, height - 1.0);
+            let vx = 0.18 + (index % 3) as f32 * 0.05;
+            let vy = 0.10 + (index % 5) as f32 * 0.035;
+            let energy = 0.45 + (index % 4) as f32 * 0.12;
+            seeds.push(LifeformSeed {
+                x,
+                y,
+                vx,
+                vy,
+                energy,
+            });
+        }
+
+        Self { bounds, seeds }
+    }
+
+    pub fn update(&mut self, tick: u64, activity: &SceneActivity) {
+        let width = f32::from(self.bounds.width.max(1));
+        let height = f32::from(self.bounds.height.max(1));
+        let cpu_energy = average(activity.core_loads());
+        let flow_energy = activity.network_download().max(activity.network_upload());
+        let speed = 0.55 + cpu_energy * 0.9 + flow_energy * 0.35;
+
+        for (index, seed) in self.seeds.iter_mut().enumerate() {
+            let drift = ((tick as f32 * 0.035) + index as f32).sin() * 0.08;
+            seed.x = wrap(seed.x + (seed.vx + drift) * speed, width);
+            seed.y = wrap(seed.y + (seed.vy - drift * 0.6) * speed, height);
+            seed.energy =
+                (0.42 + cpu_energy * 0.38 + flow_energy * 0.22 + drift.abs()).clamp(0.2, 1.0);
+        }
+    }
+
+    pub fn render(&self, canvas: &mut Canvas) {
+        for seed in &self.seeds {
+            render_lifeform_seed(canvas, seed);
+        }
+    }
+
+    pub fn snapshots(&self) -> Vec<LifeformSnapshot> {
+        self.seeds
+            .iter()
+            .map(|seed| LifeformSnapshot {
+                x: seed.x,
+                y: seed.y,
+                energy: seed.energy,
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LifeformSeed {
+    x: f32,
+    y: f32,
+    vx: f32,
+    vy: f32,
+    energy: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct LifeformSeedLayer {
+    field: LifeformField,
+}
+
+impl LifeformSeedLayer {
+    fn new(bounds: ProbeCanvasConfig) -> Self {
+        Self {
+            field: LifeformField::new(11, bounds),
+        }
+    }
+}
+
+impl SceneLayer for LifeformSeedLayer {
+    fn name(&self) -> &'static str {
+        "lifeform_seeds"
+    }
+
+    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
+        self.field.update(frame.tick(), frame.activity());
+        self.field.render(canvas);
+    }
 }
 
 fn draw_background_field(activity: &SceneActivity, canvas: &mut Canvas) {
@@ -203,6 +309,41 @@ fn draw_flow_tint(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
     }
 }
 
+fn render_lifeform_seed(canvas: &mut Canvas, seed: &LifeformSeed) {
+    let center_x = seed.x.round() as i32;
+    let center_y = seed.y.round() as i32;
+    let radius = 2_i32;
+
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let distance = ((dx * dx + dy * dy) as f32).sqrt();
+            let influence = (1.0 - distance / (radius as f32 + 0.75)).clamp(0.0, 1.0);
+            if influence <= 0.0 {
+                continue;
+            }
+
+            let x = center_x + dx;
+            let y = center_y + dy;
+            if x < 0 || y < 0 {
+                continue;
+            }
+
+            let x = x as u16;
+            let y = y as u16;
+            let Some(current) = canvas.pixel(x, y) else {
+                continue;
+            };
+            let energy = seed.energy * influence;
+            let next = Rgba::rgb(
+                add_channel(current.r, 45.0 * energy),
+                add_channel(current.g, 120.0 * energy),
+                add_channel(current.b, 85.0 * energy),
+            );
+            let _ = canvas.set_pixel(x, y, next);
+        }
+    }
+}
+
 fn average(values: &[f32]) -> f32 {
     if values.is_empty() {
         return 0.0;
@@ -232,4 +373,12 @@ fn scale_channel(value: f32) -> u8 {
 
 fn add_channel(base: u8, value: f32) -> u8 {
     scale_channel(f32::from(base) + value)
+}
+
+fn wrap(value: f32, limit: f32) -> f32 {
+    if limit <= 1.0 {
+        return 0.0;
+    }
+
+    value.rem_euclid(limit)
 }
