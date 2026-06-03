@@ -9,6 +9,8 @@ pub struct RuntimeConfig {
     pub resize_debounce: Duration,
     pub canvas_width: u16,
     pub canvas_height: u16,
+    pub image_columns: u16,
+    pub image_rows: u16,
 }
 
 impl RuntimeConfig {
@@ -25,6 +27,8 @@ impl Default for RuntimeConfig {
             resize_debounce: Duration::from_millis(50),
             canvas_width: 240,
             canvas_height: 135,
+            image_columns: 30,
+            image_rows: 10,
         }
     }
 }

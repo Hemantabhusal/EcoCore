@@ -3,6 +3,7 @@ pub mod canvas;
 pub mod diagnostics;
 pub mod input;
 pub mod kitty;
+pub mod layout;
 pub mod metrics;
 pub mod runtime;
 pub mod simulation;

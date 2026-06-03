@@ -1,6 +1,6 @@
 use ecosystem::{
     canvas::{Canvas, Rgba},
-    kitty::{KittyGraphicsEncoder, KittyImageId},
+    kitty::{KittyGraphicsEncoder, KittyImageId, KittyPlacement},
 };
 
 #[test]
@@ -37,9 +37,21 @@ fn kitty_encoder_chunks_large_payloads_with_continuation_flags() {
 }
 
 #[test]
+fn kitty_encoder_can_place_canvas_in_a_terminal_cell_rectangle() {
+    let canvas = Canvas::new(2, 1, Rgba::rgb(255, 0, 0)).expect("valid canvas");
+
+    let bytes = KittyGraphicsEncoder::new(KittyImageId::new(11))
+        .with_placement(KittyPlacement::new(30, 10))
+        .encode_canvas(&canvas);
+    let command = String::from_utf8(bytes).expect("kitty commands are utf8");
+
+    assert!(command.starts_with("\u{1b}_Ga=T,f=32,i=11,s=2,v=1,c=30,r=10,C=1,m=0;"));
+}
+
+#[test]
 fn kitty_encoder_deletes_image_by_id_for_cleanup() {
     let bytes = KittyGraphicsEncoder::new(KittyImageId::new(42)).encode_delete();
     let command = String::from_utf8(bytes).expect("kitty commands are utf8");
 
-    assert_eq!(command, "\u{1b}_Ga=d,i=42;\u{1b}\\");
+    assert_eq!(command, "\u{1b}_Ga=d,d=i,i=42;\u{1b}\\");
 }

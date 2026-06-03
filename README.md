@@ -14,7 +14,7 @@ The project currently contains:
 - Linux CPU, memory, network, and disk sampling.
 - Smoothed activity state for future visual systems.
 - RGB/RGBA canvas storage with dirty-region tracking.
-- A first Kitty graphics protocol spike that streams a generated RGBA canvas.
+- A first Kitty graphics protocol spike that streams a generated RGBA canvas with explicit placement.
 - Trace diagnostics for development and verification.
 
 The current Kitty spike is intentionally simple: it proves canvas-to-terminal image output before final art systems are built.
@@ -48,6 +48,7 @@ cargo clippy --all-targets -- -D warnings
 ```text
 src/canvas.rs       RGB/RGBA pixel canvas and dirty-region tracking
 src/kitty.rs        Kitty graphics protocol command encoding
+src/layout.rs       Terminal image placement calculations
 src/visual.rs       Temporary generated probe canvas
 src/terminal.rs     Terminal session, validation, and control sequences
 src/simulation.rs   Smoothed activity model for future visual systems

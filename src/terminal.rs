@@ -223,3 +223,9 @@ pub const fn clear_screen() -> &'static [u8] {
 pub const fn reset_style() -> &'static [u8] {
     b"\x1b[0m"
 }
+
+pub fn move_cursor_to(column: u16, row: u16) -> Vec<u8> {
+    // ANSI cursor addressing is row-first even though layout calculations are
+    // usually easier to read as x/column then y/row.
+    format!("\x1b[{};{}H", row.max(1), column.max(1)).into_bytes()
+}

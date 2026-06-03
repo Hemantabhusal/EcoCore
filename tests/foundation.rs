@@ -280,6 +280,8 @@ fn runtime_default_targets_thirty_frames_per_second() {
     assert_eq!(config.resize_debounce.as_millis(), 50);
     assert_eq!(config.canvas_width, 240);
     assert_eq!(config.canvas_height, 135);
+    assert_eq!(config.image_columns, 30);
+    assert_eq!(config.image_rows, 10);
 }
 
 #[test]

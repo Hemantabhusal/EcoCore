@@ -7,9 +7,11 @@ use std::{
 use crossterm::event::{self, Event};
 use ecosystem::{
     app::{StartupEnvironment, prepare_startup},
+    canvas::Canvas,
     diagnostics::{TraceCollector, TraceEvent},
     input::{EngineAction, key_event_to_action},
-    kitty::{KittyGraphicsEncoder, KittyImageId},
+    kitty::{KittyGraphicsEncoder, KittyImageId, KittyPlacement},
+    layout::{ImagePlacement, centered_image_placement},
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
     metrics::disk::{DiskSampler, DiskSamplerStatus},
     metrics::memory::MemorySampler,
@@ -18,6 +20,7 @@ use ecosystem::{
     simulation::{ActivitySmoother, SceneActivity},
     terminal::{
         TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen, current_terminal_size,
+        move_cursor_to,
     },
     visual::{ProbeCanvasConfig, build_probe_canvas},
 };
@@ -183,7 +186,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     &scene_activity,
                 )?;
                 let encode_started = Instant::now();
-                let output = kitty_encoder.encode_canvas(&canvas);
+                let (output, placement) = encode_positioned_frame(&config, size, &canvas);
                 let encode_time = encode_started.elapsed();
                 session.writer_mut().write_all(&output)?;
                 session.writer_mut().flush()?;
@@ -192,9 +195,13 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     traces.record(TraceEvent::new(
                         "frame",
                         format!(
-                            "tick {tick}: {}x{} canvas, {} bytes sent, encode {:?}, frame {:?}",
+                            "tick {tick}: {}x{} canvas, {}x{} cells at {},{}, {} bytes sent, encode {:?}, frame {:?}",
                             canvas.width(),
                             canvas.height(),
+                            placement.columns,
+                            placement.rows,
+                            placement.cursor_column,
+                            placement.cursor_row,
                             output.len(),
                             encode_time,
                             frame_started.elapsed()
@@ -266,6 +273,23 @@ fn redraw_after_resize<W: Write>(
     ));
 
     Ok(())
+}
+
+fn encode_positioned_frame(
+    config: &RuntimeConfig,
+    terminal_size: TerminalSize,
+    canvas: &Canvas,
+) -> (Vec<u8>, ImagePlacement) {
+    let placement =
+        centered_image_placement(terminal_size, config.image_columns, config.image_rows);
+    let mut output = move_cursor_to(placement.cursor_column, placement.cursor_row);
+    output.extend_from_slice(
+        &KittyGraphicsEncoder::new(SPIKE_IMAGE_ID)
+            .with_placement(KittyPlacement::new(placement.columns, placement.rows))
+            .encode_canvas(canvas),
+    );
+
+    (output, placement)
 }
 
 fn suspend_for_unsupported_resize<W: Write>(

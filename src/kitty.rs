@@ -21,6 +21,7 @@ impl KittyImageId {
 pub struct KittyGraphicsEncoder {
     image_id: KittyImageId,
     chunk_size: usize,
+    placement: Option<KittyPlacement>,
 }
 
 impl KittyGraphicsEncoder {
@@ -28,11 +29,17 @@ impl KittyGraphicsEncoder {
         Self {
             image_id,
             chunk_size: DEFAULT_CHUNK_SIZE,
+            placement: None,
         }
     }
 
     pub const fn with_chunk_size(mut self, chunk_size: usize) -> Self {
         self.chunk_size = chunk_size;
+        self
+    }
+
+    pub const fn with_placement(mut self, placement: KittyPlacement) -> Self {
+        self.placement = Some(placement);
         self
     }
 
@@ -46,15 +53,20 @@ impl KittyGraphicsEncoder {
         for (index, chunk) in payload.as_bytes().chunks(chunk_size).enumerate() {
             let more_chunks = usize::from(index + 1 < chunk_count);
             if index == 0 {
-                bytes.extend_from_slice(
-                    format!(
-                        "\x1b_Ga=T,f=32,i={},s={},v={},m={more_chunks};",
-                        self.image_id.value(),
-                        canvas.width(),
-                        canvas.height()
-                    )
-                    .as_bytes(),
+                let mut command = format!(
+                    "\x1b_Ga=T,f=32,i={},s={},v={}",
+                    self.image_id.value(),
+                    canvas.width(),
+                    canvas.height()
                 );
+                if let Some(placement) = self.placement {
+                    command.push_str(&format!(
+                        ",c={},r={},C=1",
+                        placement.columns, placement.rows
+                    ));
+                }
+                command.push_str(&format!(",m={more_chunks};"));
+                bytes.extend_from_slice(command.as_bytes());
             } else {
                 bytes.extend_from_slice(format!("\x1b_Gm={more_chunks};").as_bytes());
             }
@@ -66,7 +78,22 @@ impl KittyGraphicsEncoder {
     }
 
     pub fn encode_delete(&self) -> Vec<u8> {
-        format!("\x1b_Ga=d,i={};\x1b\\", self.image_id.value()).into_bytes()
+        format!("\x1b_Ga=d,d=i,i={};\x1b\\", self.image_id.value()).into_bytes()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KittyPlacement {
+    pub columns: u16,
+    pub rows: u16,
+}
+
+impl KittyPlacement {
+    pub const fn new(columns: u16, rows: u16) -> Self {
+        let columns = if columns == 0 { 1 } else { columns };
+        let rows = if rows == 0 { 1 } else { rows };
+
+        Self { columns, rows }
     }
 }
 
