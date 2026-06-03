@@ -1,8 +1,33 @@
 use ecosystem::{
-    canvas::Rgba,
+    canvas::{Canvas, Rgba},
     simulation::SceneActivity,
-    visual::{ProbeCanvasConfig, ProbeScene, build_probe_canvas},
+    visual::{
+        LayeredScene, ProbeCanvasConfig, ProbeScene, SceneFrame, SceneLayer, build_probe_canvas,
+    },
 };
+
+struct FillLayer {
+    color: Rgba,
+}
+
+impl SceneLayer for FillLayer {
+    fn render(&mut self, canvas: &mut Canvas, _frame: SceneFrame<'_>) {
+        canvas.fill(self.color);
+    }
+}
+
+struct MarkerLayer;
+
+impl SceneLayer for MarkerLayer {
+    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
+        let color = if frame.tick().is_multiple_of(2) {
+            Rgba::rgb(200, 30, 80)
+        } else {
+            Rgba::rgb(40, 210, 160)
+        };
+        canvas.set_pixel(0, 0, color).expect("marker in bounds");
+    }
+}
 
 #[test]
 fn probe_canvas_builds_expected_dimensions_and_opaque_pixels() {
@@ -62,4 +87,30 @@ fn probe_scene_keeps_rendered_canvas_clean_for_full_frame_presentation() {
     let canvas = scene.render(0, &SceneActivity::default());
 
     assert_eq!(canvas.dirty_region(), None);
+}
+
+#[test]
+fn layered_scene_composes_layers_in_order_and_reuses_canvas_storage() {
+    let mut scene = LayeredScene::new(
+        ProbeCanvasConfig::new(4, 3),
+        vec![
+            Box::new(FillLayer {
+                color: Rgba::rgb(1, 2, 3),
+            }),
+            Box::new(MarkerLayer),
+        ],
+    )
+    .expect("valid layered scene");
+
+    let first = scene.render(2, &SceneActivity::default());
+    let first_ptr = first.pixels().as_ptr();
+
+    assert_eq!(first.pixel(0, 0), Some(Rgba::rgb(200, 30, 80)));
+    assert_eq!(first.pixel(1, 0), Some(Rgba::rgb(1, 2, 3)));
+
+    let second = scene.render(3, &SceneActivity::default());
+
+    assert_eq!(second.pixels().as_ptr(), first_ptr);
+    assert_eq!(second.pixel(0, 0), Some(Rgba::rgb(40, 210, 160)));
+    assert_eq!(second.dirty_region(), None);
 }
