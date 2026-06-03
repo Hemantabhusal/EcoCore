@@ -7,6 +7,8 @@ pub struct RuntimeConfig {
     pub target_fps: u16,
     pub metrics_sample_interval: Duration,
     pub resize_debounce: Duration,
+    pub canvas_width: u16,
+    pub canvas_height: u16,
 }
 
 impl RuntimeConfig {
@@ -21,6 +23,8 @@ impl Default for RuntimeConfig {
             target_fps: 30,
             metrics_sample_interval: Duration::from_millis(500),
             resize_debounce: Duration::from_millis(50),
+            canvas_width: 240,
+            canvas_height: 135,
         }
     }
 }

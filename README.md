@@ -14,9 +14,10 @@ The project currently contains:
 - Linux CPU, memory, network, and disk sampling.
 - Smoothed activity state for future visual systems.
 - RGB/RGBA canvas storage with dirty-region tracking.
+- A first Kitty graphics protocol spike that streams a generated RGBA canvas.
 - Trace diagnostics for development and verification.
 
-The next renderer target is Kitty graphics protocol output from the internal pixel canvas.
+The current Kitty spike is intentionally simple: it proves canvas-to-terminal image output before final art systems are built.
 
 ## Run
 
@@ -30,7 +31,7 @@ Quit with `q` or `Esc`.
 
 A terminal of at least `80x24` is expected for the current renderer.
 
-Future high-end visuals will target modern terminals with Kitty graphics protocol support. GPU acceleration alone is not enough; the terminal must support an image/graphics protocol that the application can send frames to. Broad compatibility with old or limited terminals is not a project goal.
+High-end visuals target modern terminals with Kitty graphics protocol support. GPU acceleration alone is not enough; the terminal must support an image/graphics protocol that the application can send frames to. Broad compatibility with old or limited terminals is not a project goal.
 
 ## Development
 
@@ -46,6 +47,8 @@ cargo clippy --all-targets -- -D warnings
 
 ```text
 src/canvas.rs       RGB/RGBA pixel canvas and dirty-region tracking
+src/kitty.rs        Kitty graphics protocol command encoding
+src/visual.rs       Temporary generated probe canvas
 src/terminal.rs     Terminal session, validation, and control sequences
 src/simulation.rs   Smoothed activity model for future visual systems
 src/metrics/        CPU, memory, network, and disk sampling
@@ -61,6 +64,7 @@ tests/              Canvas, terminal, runtime, simulation, and metric tests
 - Do not add alternate render backends unless they solve a real implementation problem.
 - Keep simulation/update rates separate from display FPS.
 - Measure frame time, encode time, bytes sent, FPS, memory, and CPU.
+- Prefer measured protocol improvements over guessing about terminal throughput.
 - Prefer deterministic motion over random effects.
 - Avoid harsh flicker.
 - Use dependencies carefully.

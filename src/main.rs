@@ -9,6 +9,7 @@ use ecosystem::{
     app::{StartupEnvironment, prepare_startup},
     diagnostics::{TraceCollector, TraceEvent},
     input::{EngineAction, key_event_to_action},
+    kitty::{KittyGraphicsEncoder, KittyImageId},
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
     metrics::disk::{DiskSampler, DiskSamplerStatus},
     metrics::memory::MemorySampler,
@@ -18,10 +19,12 @@ use ecosystem::{
     terminal::{
         TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen, current_terminal_size,
     },
+    visual::{ProbeCanvasConfig, build_probe_canvas},
 };
 
 const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const ACTIVITY_SMOOTHING_RESPONSE: f32 = 0.25;
+const SPIKE_IMAGE_ID: KittyImageId = KittyImageId::new(1);
 
 fn main() -> ExitCode {
     let mut traces = if std::env::var_os("ECOSYSTEM_TRACE").is_some() {
@@ -59,6 +62,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
 
     let stdout = io::stdout();
     let mut session = TerminalSession::start(stdout.lock(), TerminalSessionOptions::default())?;
+    let kitty_encoder = KittyGraphicsEncoder::new(SPIKE_IMAGE_ID);
     traces.record(TraceEvent::new(
         "input",
         "entering frame loop; press q or Esc to quit",
@@ -172,12 +176,28 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                 // Metrics arrive at a lower cadence than frames. Smoothing here
                 // keeps future canvas state responsive without snapping every sample tick.
                 let scene_activity = activity_smoother.step_towards(&target_activity);
+                let frame_started = Instant::now();
+                let canvas = build_probe_canvas(
+                    ProbeCanvasConfig::new(config.canvas_width, config.canvas_height),
+                    tick,
+                    &scene_activity,
+                )?;
+                let encode_started = Instant::now();
+                let output = kitty_encoder.encode_canvas(&canvas);
+                let encode_time = encode_started.elapsed();
+                session.writer_mut().write_all(&output)?;
+                session.writer_mut().flush()?;
+
                 if tick.is_multiple_of(u64::from(config.target_fps)) {
                     traces.record(TraceEvent::new(
                         "frame",
                         format!(
-                            "tick {tick}: canvas backend pending, {} core signals",
-                            scene_activity.core_loads().len()
+                            "tick {tick}: {}x{} canvas, {} bytes sent, encode {:?}, frame {:?}",
+                            canvas.width(),
+                            canvas.height(),
+                            output.len(),
+                            encode_time,
+                            frame_started.elapsed()
                         ),
                     ));
                 }
@@ -221,6 +241,10 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
         }
     }
 
+    session
+        .writer_mut()
+        .write_all(&kitty_encoder.encode_delete())?;
+    session.writer_mut().flush()?;
     session.finish()?;
 
     Ok(())
@@ -232,6 +256,9 @@ fn redraw_after_resize<W: Write>(
     traces: &mut TraceCollector,
 ) -> io::Result<()> {
     session.writer_mut().write_all(clear_screen())?;
+    session
+        .writer_mut()
+        .write_all(&KittyGraphicsEncoder::new(SPIKE_IMAGE_ID).encode_delete())?;
     session.writer_mut().flush()?;
     traces.record(TraceEvent::new(
         "terminal.resize",
@@ -248,6 +275,9 @@ fn suspend_for_unsupported_resize<W: Write>(
     traces: &mut TraceCollector,
 ) -> io::Result<()> {
     session.writer_mut().write_all(clear_screen())?;
+    session
+        .writer_mut()
+        .write_all(&KittyGraphicsEncoder::new(SPIKE_IMAGE_ID).encode_delete())?;
     session.writer_mut().flush()?;
     traces.record(TraceEvent::new(
         "terminal.resize",
