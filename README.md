@@ -17,7 +17,7 @@ The project currently contains:
 - A first Kitty graphics protocol renderer that streams a generated RGBA canvas with explicit placement.
 - Double-buffered Kitty image ids to reduce visible delete/recreate flicker.
 - Renderer-side frame byte counters and protocol statistics for performance checks.
-- A temporary layered probe scene that reuses one canvas buffer across frames.
+- A temporary layered probe scene with background, activity pulse, and flow tint layers.
 - Trace diagnostics for development and verification.
 
 The current Kitty spike is intentionally simple: it proves canvas-to-terminal image output before final art systems are built.
@@ -53,7 +53,7 @@ src/canvas.rs       RGB/RGBA pixel canvas and dirty-region tracking
 src/kitty.rs        Kitty graphics protocol command encoding
 src/layout.rs       Terminal image placement calculations
 src/renderer.rs     Stateful Kitty frame presentation
-src/visual.rs       Temporary layered probe scene and canvas drawing
+src/visual.rs       Temporary layered probe scene and canvas composition
 src/terminal.rs     Terminal session, validation, and control sequences
 src/simulation.rs   Smoothed activity model for future visual systems
 src/metrics/        CPU, memory, network, and disk sampling

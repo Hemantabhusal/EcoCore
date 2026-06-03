@@ -22,12 +22,16 @@ pub struct ProbeScene {
 impl ProbeScene {
     pub fn new(config: ProbeCanvasConfig) -> Result<Self, CanvasError> {
         Ok(Self {
-            scene: LayeredScene::new(config, vec![Box::new(ProbeLayer)])?,
+            scene: LayeredScene::new(config, probe_layers())?,
         })
     }
 
     pub fn render(&mut self, tick: u64, activity: &SceneActivity) -> &Canvas {
         self.scene.render(tick, activity)
+    }
+
+    pub fn layer_names(&self) -> Vec<&'static str> {
+        self.scene.layer_names()
     }
 }
 
@@ -52,6 +56,10 @@ impl<'a> SceneFrame<'a> {
 }
 
 pub trait SceneLayer {
+    fn name(&self) -> &'static str {
+        "anonymous"
+    }
+
     fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>);
 }
 
@@ -79,14 +87,48 @@ impl LayeredScene {
         self.canvas.clear_dirty();
         &self.canvas
     }
+
+    pub fn layer_names(&self) -> Vec<&'static str> {
+        self.layers.iter().map(|layer| layer.name()).collect()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct ProbeLayer;
+struct BackgroundFieldLayer;
 
-impl SceneLayer for ProbeLayer {
+impl SceneLayer for BackgroundFieldLayer {
+    fn name(&self) -> &'static str {
+        "background_field"
+    }
+
     fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
-        draw_probe_canvas(frame.tick(), frame.activity(), canvas);
+        draw_background_field(frame.activity(), canvas);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ActivityPulseLayer;
+
+impl SceneLayer for ActivityPulseLayer {
+    fn name(&self) -> &'static str {
+        "activity_pulse"
+    }
+
+    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
+        draw_activity_pulse(frame.tick(), frame.activity(), canvas);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct FlowTintLayer;
+
+impl SceneLayer for FlowTintLayer {
+    fn name(&self) -> &'static str {
+        "flow_tint"
+    }
+
+    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
+        draw_flow_tint(frame.tick(), frame.activity(), canvas);
     }
 }
 
@@ -96,34 +138,68 @@ pub fn build_probe_canvas(
     activity: &SceneActivity,
 ) -> Result<Canvas, CanvasError> {
     let mut canvas = Canvas::new(config.width, config.height, Rgba::rgb(0, 0, 0))?;
-    draw_probe_canvas(tick, activity, &mut canvas);
+    for mut layer in probe_layers() {
+        layer.render(&mut canvas, SceneFrame::new(tick, activity));
+    }
     canvas.clear_dirty();
     Ok(canvas)
 }
 
-fn draw_probe_canvas(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
-    let cpu_energy = average(activity.core_loads());
-    let network_energy = activity.network_download().max(activity.network_upload());
+fn probe_layers() -> Vec<Box<dyn SceneLayer>> {
+    vec![
+        Box::new(BackgroundFieldLayer),
+        Box::new(ActivityPulseLayer),
+        Box::new(FlowTintLayer),
+    ]
+}
+
+fn draw_background_field(activity: &SceneActivity, canvas: &mut Canvas) {
     let memory_energy = activity.memory_pressure();
-    let disk_energy = activity.disk_read().max(activity.disk_write());
     let width = canvas.width();
     let height = canvas.height();
 
-    // Whole-frame renderers write through the backing slice to avoid repeated
+    // Whole-frame base layers write through the backing slice to avoid repeated
     // bounds checks and dirty-region updates for every pixel.
     for (index, pixel) in canvas.pixels_mut().iter_mut().enumerate() {
         let x = (index % usize::from(width)) as u16;
         let y = (index / usize::from(width)) as u16;
         let fx = f32::from(x) / f32::from(width.max(1));
         let fy = f32::from(y) / f32::from(height.max(1));
-        let wave = (((f32::from(x) * 0.08) + (tick as f32 * 0.18)).sin() + 1.0) * 0.5;
-        let pulse = radial_pulse(width, height, x, y, tick, cpu_energy);
 
-        let r = scale_channel(12.0 + pulse * 155.0 + disk_energy * 80.0);
+        let r = scale_channel(12.0);
         let g = scale_channel(24.0 + fy * 80.0 + memory_energy * 85.0);
-        let b = scale_channel(42.0 + fx * 95.0 + wave * network_energy * 90.0);
+        let b = scale_channel(42.0 + fx * 95.0);
 
         *pixel = Rgba::rgb(r, g, b);
+    }
+}
+
+fn draw_activity_pulse(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
+    let cpu_energy = average(activity.core_loads());
+    let disk_energy = activity.disk_read().max(activity.disk_write());
+    let width = canvas.width();
+    let height = canvas.height();
+
+    for (index, pixel) in canvas.pixels_mut().iter_mut().enumerate() {
+        let x = (index % usize::from(width)) as u16;
+        let y = (index / usize::from(width)) as u16;
+        let pulse = radial_pulse(width, height, x, y, tick, cpu_energy);
+        pixel.r = add_channel(pixel.r, pulse * 155.0 + disk_energy * 80.0);
+    }
+}
+
+fn draw_flow_tint(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
+    let network_energy = activity.network_download().max(activity.network_upload());
+    let width = canvas.width();
+
+    if network_energy <= 0.0 {
+        return;
+    }
+
+    for (index, pixel) in canvas.pixels_mut().iter_mut().enumerate() {
+        let x = (index % usize::from(width)) as u16;
+        let wave = (((f32::from(x) * 0.08) + (tick as f32 * 0.18)).sin() + 1.0) * 0.5;
+        pixel.b = add_channel(pixel.b, wave * network_energy * 90.0);
     }
 }
 
@@ -152,4 +228,8 @@ fn radial_pulse(width: u16, height: u16, x: u16, y: u16, tick: u64, energy: f32)
 
 fn scale_channel(value: f32) -> u8 {
     value.clamp(0.0, 255.0).round() as u8
+}
+
+fn add_channel(base: u8, value: f32) -> u8 {
+    scale_channel(f32::from(base) + value)
 }

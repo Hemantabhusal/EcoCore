@@ -90,6 +90,16 @@ fn probe_scene_keeps_rendered_canvas_clean_for_full_frame_presentation() {
 }
 
 #[test]
+fn probe_scene_exposes_named_internal_composition_layers() {
+    let scene = ProbeScene::new(ProbeCanvasConfig::new(16, 9)).expect("valid probe scene");
+
+    assert_eq!(
+        scene.layer_names(),
+        ["background_field", "activity_pulse", "flow_tint"]
+    );
+}
+
+#[test]
 fn layered_scene_composes_layers_in_order_and_reuses_canvas_storage() {
     let mut scene = LayeredScene::new(
         ProbeCanvasConfig::new(4, 3),
