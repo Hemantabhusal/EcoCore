@@ -1,8 +1,10 @@
 # Ecosystem
 
-Ecosystem is a Rust terminal renderer that turns system activity into a small ambient terminal world.
+Ecosystem is a Rust terminal graphics experiment that turns system activity into a small ambient world.
 
-It is built for fun, visual experimentation, and smooth real-time terminal art. The goal is not to replace system monitors like `htop` or `btop`, but to make a lightweight terminal scene that feels alive while staying simple and inspectable.
+It is built for fun, visual experimentation, and smooth real-time terminal art. The goal is not to replace system monitors like `htop` or `btop`, but to make a terminal scene that feels alive.
+
+The current implementation is a Unicode renderer foundation. The long-term direction is a high-end graphics-capable terminal renderer using an internal pixel canvas and Kitty graphics protocol output.
 
 ## Current Shape
 
@@ -16,7 +18,7 @@ The project currently renders a Unicode-based landscape with:
 - Diff-based ANSI rendering to avoid full-screen redraws.
 - Basic resize handling and terminal validation.
 
-The visual language is still evolving. The current focus is building a strong renderer foundation first, then improving the art direction incrementally.
+The visual language is still evolving. Future work is moving away from direct glyph art toward a pixel-canvas renderer for modern graphics-capable terminals.
 
 ## Run
 
@@ -28,7 +30,9 @@ cargo run
 
 Quit with `q` or `Esc`.
 
-A terminal of at least `80x24` is expected. Truecolor terminals such as Kitty, Ghostty, WezTerm, or modern xterm-compatible terminals are recommended.
+A terminal of at least `80x24` is expected for the current renderer.
+
+Future high-end visuals will target modern terminals with graphics protocol support. Kitty graphics protocol support is the primary target; broad compatibility with old or limited terminals is not a project goal.
 
 ## Development
 
@@ -54,10 +58,11 @@ tests/              Renderer, terminal, runtime, and metric behavior tests
 
 ## Design Principles
 
-- Keep the default renderer lightweight and Unicode-first.
+- Target high-end terminal visuals instead of broad terminal compatibility.
+- Use a shared pixel canvas as the future art boundary.
+- Treat Kitty graphics protocol output as the primary future backend.
 - Prefer deterministic motion over random effects.
 - Avoid harsh flicker.
 - Keep redraws bounded through framebuffer diffing.
 - Use dependencies carefully.
 - Keep visual changes testable.
-
