@@ -200,17 +200,22 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                 session.writer_mut().flush()?;
 
                 if tick.is_multiple_of(u64::from(config.target_fps)) {
+                    let renderer_stats = renderer.stats();
                     traces.record(TraceEvent::new(
                         "frame",
                         format!(
-                            "tick {tick}: {}x{} canvas, {}x{} cells at {},{}, {} bytes sent, encode {:?}, frame {:?}",
+                            "tick {tick}: {}x{} canvas, {}x{} cells at {},{}, image {}, deleted {:?}, {} bytes sent, avg {} bytes/frame, {} protocol bytes total, encode {:?}, frame {:?}",
                             canvas.width(),
                             canvas.height(),
                             frame.placement.columns,
                             frame.placement.rows,
                             frame.placement.cursor_column,
                             frame.placement.cursor_row,
+                            frame.image_id.value(),
+                            frame.deleted_image_id.map(KittyImageId::value),
                             frame.bytes.len(),
+                            renderer_stats.average_frame_bytes(),
+                            renderer_stats.total_protocol_bytes(),
                             encode_time,
                             frame_started.elapsed()
                         ),

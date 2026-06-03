@@ -16,6 +16,7 @@ The project currently contains:
 - RGB/RGBA canvas storage with dirty-region tracking.
 - A first Kitty graphics protocol renderer that streams a generated RGBA canvas with explicit placement.
 - Double-buffered Kitty image ids to reduce visible delete/recreate flicker.
+- Renderer-side frame byte counters and protocol statistics for performance checks.
 - Trace diagnostics for development and verification.
 
 The current Kitty spike is intentionally simple: it proves canvas-to-terminal image output before final art systems are built.
@@ -67,6 +68,7 @@ tests/              Canvas, terminal, runtime, simulation, and metric tests
 - Do not add alternate render backends unless they solve a real implementation problem.
 - Keep simulation/update rates separate from display FPS.
 - Measure frame time, encode time, bytes sent, FPS, memory, and CPU.
+- Keep the frame pipeline allocation-conscious as scene complexity grows.
 - Prefer measured protocol improvements over guessing about terminal throughput.
 - Prefer deterministic motion over random effects.
 - Avoid harsh flicker.

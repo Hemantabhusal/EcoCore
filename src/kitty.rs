@@ -44,11 +44,17 @@ impl KittyGraphicsEncoder {
     }
 
     pub fn encode_canvas(&self, canvas: &Canvas) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        self.append_canvas(canvas, &mut bytes);
+        bytes
+    }
+
+    pub fn append_canvas(&self, canvas: &Canvas, bytes: &mut Vec<u8>) {
         let rgba = canvas_rgba_bytes(canvas);
         let payload = STANDARD.encode(rgba);
         let chunk_size = self.chunk_size.max(1);
         let chunk_count = payload.len().div_ceil(chunk_size).max(1);
-        let mut bytes = Vec::with_capacity(payload.len() + chunk_count * 64);
+        bytes.reserve(payload.len() + chunk_count * 64);
 
         for (index, chunk) in payload.as_bytes().chunks(chunk_size).enumerate() {
             let more_chunks = usize::from(index + 1 < chunk_count);
@@ -73,12 +79,18 @@ impl KittyGraphicsEncoder {
             bytes.extend_from_slice(chunk);
             bytes.extend_from_slice(b"\x1b\\");
         }
-
-        bytes
     }
 
     pub fn encode_delete(&self) -> Vec<u8> {
-        format!("\x1b_Ga=d,d=i,i={};\x1b\\", self.image_id.value()).into_bytes()
+        let mut bytes = Vec::new();
+        self.append_delete(&mut bytes);
+        bytes
+    }
+
+    pub fn append_delete(&self, bytes: &mut Vec<u8>) {
+        bytes.extend_from_slice(
+            format!("\x1b_Ga=d,d=i,i={};\x1b\\", self.image_id.value()).as_bytes(),
+        );
     }
 }
 
