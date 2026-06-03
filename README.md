@@ -20,7 +20,7 @@ The project currently contains:
 - Reused Kitty encode scratch buffers for RGBA packing and base64 output.
 - A temporary layered probe scene with background, activity pulse, lifeform trail, lifeform seed, and flow tint layers.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
-- Trace diagnostics for development and verification.
+- Trace diagnostics for development and verification, including structured `graphics.frame` snapshots with measured FPS, encode time, frame time, placement, image ids, and protocol bytes.
 
 The current Kitty spike is intentionally simple: it proves canvas-to-terminal image output before final art systems are built.
 
@@ -72,6 +72,7 @@ tests/              Canvas, terminal, runtime, simulation, and metric tests
 - Keep simulation/update rates separate from display FPS.
 - Measure frame time, encode time, bytes sent, FPS, memory, and CPU.
 - Keep the frame pipeline allocation-conscious as scene complexity grows.
+- Keep graphics measurement trace output stable enough to compare manual Kitty runs across visual changes.
 - Defer dirty-region Kitty updates until visual layers stop repainting most of the canvas.
 - Defer SIGINT/SIGTERM image cleanup until production hardening adds a signal handling dependency.
 - Prefer measured protocol improvements over guessing about terminal throughput.

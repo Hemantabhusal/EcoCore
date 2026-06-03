@@ -7,7 +7,7 @@ use std::{
 use crossterm::event::{self, Event};
 use ecosystem::{
     app::{StartupEnvironment, prepare_startup},
-    diagnostics::{TraceCollector, TraceEvent},
+    diagnostics::{GraphicsFrameTrace, TraceCollector, TraceEvent},
     input::{EngineAction, key_event_to_action},
     kitty::KittyImageId,
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
@@ -91,6 +91,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     let mut next_metrics_at = Instant::now();
     let mut output_suspended = false;
     let mut resize_debouncer = ResizeDebouncer::new(config.resize_debounce);
+    let mut measurement_window_started_at = Instant::now();
+    let mut measurement_window_frames = 0_u64;
     traces.record(TraceEvent::new(
         "frame",
         format!("targeting {} fps", config.target_fps),
@@ -171,6 +173,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     redraw_after_resize(&mut session, &mut renderer, size, traces)?;
                     output_suspended = false;
                     next_frame_at = Instant::now() + frame_duration;
+                    measurement_window_started_at = Instant::now();
+                    measurement_window_frames = 0;
                 }
                 ResizeDecision::Suspend { actual, minimum } => {
                     suspend_for_unsupported_resize(
@@ -181,6 +185,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                         traces,
                     )?;
                     output_suspended = true;
+                    measurement_window_started_at = Instant::now();
+                    measurement_window_frames = 0;
                 }
             }
             continue;
@@ -198,28 +204,31 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                 let encode_time = encode_started.elapsed();
                 session.writer_mut().write_all(&frame.bytes)?;
                 session.writer_mut().flush()?;
+                let frame_time = frame_started.elapsed();
+                measurement_window_frames += 1;
 
                 if tick.is_multiple_of(u64::from(config.target_fps)) {
                     let renderer_stats = renderer.stats();
-                    traces.record(TraceEvent::new(
-                        "frame",
-                        format!(
-                            "tick {tick}: {}x{} canvas, {}x{} cells at {},{}, image {}, deleted {:?}, {} bytes sent, avg {} bytes/frame, {} protocol bytes total, encode {:?}, frame {:?}",
-                            canvas.width(),
-                            canvas.height(),
-                            frame.placement.columns,
-                            frame.placement.rows,
-                            frame.placement.cursor_column,
-                            frame.placement.cursor_row,
-                            frame.image_id.value(),
-                            frame.deleted_image_id.map(KittyImageId::value),
-                            frame.bytes.len(),
-                            renderer_stats.average_frame_bytes(),
-                            renderer_stats.total_protocol_bytes(),
+                    traces.record(
+                        GraphicsFrameTrace {
+                            tick,
+                            canvas_width: canvas.width(),
+                            canvas_height: canvas.height(),
+                            placement: frame.placement,
+                            image_id: frame.image_id,
+                            deleted_image_id: frame.deleted_image_id,
+                            frame_bytes: frame.bytes.len(),
+                            average_frame_bytes: renderer_stats.average_frame_bytes(),
+                            total_protocol_bytes: renderer_stats.total_protocol_bytes(),
                             encode_time,
-                            frame_started.elapsed()
-                        ),
-                    ));
+                            frame_time,
+                            frames_in_window: measurement_window_frames,
+                            window_elapsed: measurement_window_started_at.elapsed(),
+                        }
+                        .to_trace_event(),
+                    );
+                    measurement_window_started_at = Instant::now();
+                    measurement_window_frames = 0;
                 }
             }
 

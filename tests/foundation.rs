@@ -4,8 +4,10 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ecosystem::{
     app::{StartupEnvironment, prepare_startup},
     canvas::{Canvas, CanvasError, DirtyRegion, Rgba},
-    diagnostics::{TraceCollector, TraceEvent},
+    diagnostics::{GraphicsFrameTrace, TraceCollector, TraceEvent},
     input::{EngineAction, key_event_to_action},
+    kitty::KittyImageId,
+    layout::ImagePlacement,
     runtime::{
         ResizeDebouncer, ResizeDecision, RuntimeConfig, resize_decision, target_frame_duration,
     },
@@ -96,6 +98,38 @@ fn trace_collector_records_critical_development_events_when_enabled() {
     assert_eq!(snapshot[0].target, "canvas");
     assert!(snapshot[0].message.contains("RGBA"));
     assert_eq!(snapshot[1].target, "terminal");
+}
+
+#[test]
+fn graphics_frame_trace_formats_measurement_snapshot_for_terminal_runs() {
+    let trace = GraphicsFrameTrace {
+        tick: 30,
+        canvas_width: 240,
+        canvas_height: 135,
+        placement: ImagePlacement {
+            cursor_column: 46,
+            cursor_row: 16,
+            columns: 30,
+            rows: 10,
+        },
+        image_id: KittyImageId::new(2),
+        deleted_image_id: Some(KittyImageId::new(1)),
+        frame_bytes: 173_152,
+        average_frame_bytes: 172_900,
+        total_protocol_bytes: 5_187_000,
+        encode_time: Duration::from_micros(2_400),
+        frame_time: Duration::from_micros(3_100),
+        frames_in_window: 30,
+        window_elapsed: Duration::from_millis(1_000),
+    };
+
+    let event = trace.to_trace_event();
+
+    assert_eq!(event.target, "graphics.frame");
+    assert_eq!(
+        event.message,
+        "tick 30: 240x135 canvas, 30x10 cells at 46,16, 30.0 fps, image 2, deleted 1, 173152 bytes sent, avg 172900 bytes/frame, 5187000 protocol bytes total, encode 2400us, frame 3100us"
+    );
 }
 
 #[test]
