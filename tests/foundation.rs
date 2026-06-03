@@ -310,7 +310,7 @@ fn activity_smoother_moves_world_signals_toward_target_without_snapping() {
         .with_disk_activity(0.6, 0.4);
     let mut smoother = ActivitySmoother::new(0.25);
 
-    let first = smoother.step_towards(&target);
+    let first: &SceneActivity = smoother.step_towards(&target);
 
     assert_eq!(first.core_loads(), &[0.25, 0.125]);
     assert!((first.memory_pressure() - 0.25).abs() < f32::EPSILON);
@@ -319,7 +319,7 @@ fn activity_smoother_moves_world_signals_toward_target_without_snapping() {
     assert!((first.disk_read() - 0.15).abs() < f32::EPSILON);
     assert!((first.disk_write() - 0.10).abs() < f32::EPSILON);
 
-    let second = smoother.step_towards(&target);
+    let second: &SceneActivity = smoother.step_towards(&target);
 
     assert!((second.core_loads()[0] - 0.4375).abs() < f32::EPSILON);
     assert!((second.memory_pressure() - 0.4375).abs() < f32::EPSILON);
@@ -333,9 +333,9 @@ fn activity_smoother_clamps_response_to_valid_range() {
         .with_disk_activity(0.3, 0.1);
     let mut smoother = ActivitySmoother::new(4.0);
 
-    let current = smoother.step_towards(&target);
+    let current: &SceneActivity = smoother.step_towards(&target);
 
-    assert_eq!(current, target);
+    assert_eq!(current, &target);
 }
 
 #[test]

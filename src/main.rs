@@ -192,7 +192,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                 // keeps future canvas state responsive without snapping every sample tick.
                 let scene_activity = activity_smoother.step_towards(&target_activity);
                 let frame_started = Instant::now();
-                let canvas = visual_scene.render(tick, &scene_activity);
+                let canvas = visual_scene.render(tick, scene_activity);
                 let encode_started = Instant::now();
                 let frame = renderer.render_frame(size, canvas);
                 let encode_time = encode_started.elapsed();

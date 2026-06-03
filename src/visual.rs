@@ -132,19 +132,6 @@ impl SceneLayer for FlowTintLayer {
     }
 }
 
-pub fn build_probe_canvas(
-    config: ProbeCanvasConfig,
-    tick: u64,
-    activity: &SceneActivity,
-) -> Result<Canvas, CanvasError> {
-    let mut canvas = Canvas::new(config.width, config.height, Rgba::rgb(0, 0, 0))?;
-    for mut layer in probe_layers(config) {
-        layer.render(&mut canvas, SceneFrame::new(tick, activity));
-    }
-    canvas.clear_dirty();
-    Ok(canvas)
-}
-
 fn probe_layers(config: ProbeCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
     vec![
         Box::new(BackgroundFieldLayer),

@@ -1,10 +1,7 @@
 use ecosystem::{
     canvas::{Canvas, Rgba},
     simulation::SceneActivity,
-    visual::{
-        LayeredScene, LifeformField, ProbeCanvasConfig, ProbeScene, SceneFrame, SceneLayer,
-        build_probe_canvas,
-    },
+    visual::{LayeredScene, LifeformField, ProbeCanvasConfig, ProbeScene, SceneFrame, SceneLayer},
 };
 
 struct FillLayer {
@@ -32,12 +29,8 @@ impl SceneLayer for MarkerLayer {
 
 #[test]
 fn probe_canvas_builds_expected_dimensions_and_opaque_pixels() {
-    let canvas = build_probe_canvas(
-        ProbeCanvasConfig::new(16, 9),
-        0,
-        &SceneActivity::default().with_memory_pressure(0.5),
-    )
-    .expect("valid probe canvas");
+    let mut scene = ProbeScene::new(ProbeCanvasConfig::new(16, 9)).expect("valid probe scene");
+    let canvas = scene.render(0, &SceneActivity::default().with_memory_pressure(0.5));
 
     assert_eq!(canvas.width(), 16);
     assert_eq!(canvas.height(), 9);
@@ -46,19 +39,19 @@ fn probe_canvas_builds_expected_dimensions_and_opaque_pixels() {
 
 #[test]
 fn probe_canvas_changes_with_tick_and_activity_without_changing_size() {
-    let calm = build_probe_canvas(ProbeCanvasConfig::new(16, 9), 0, &SceneActivity::default())
-        .expect("valid calm canvas");
-    let active = build_probe_canvas(
-        ProbeCanvasConfig::new(16, 9),
-        8,
-        &SceneActivity::from_core_loads(vec![1.0]).with_network_flow(1.0, 0.0),
-    )
-    .expect("valid active canvas");
+    let mut scene = ProbeScene::new(ProbeCanvasConfig::new(16, 9)).expect("valid probe scene");
+    let calm = scene.render(0, &SceneActivity::default()).pixels().to_vec();
+    let active = scene
+        .render(
+            8,
+            &SceneActivity::from_core_loads(vec![1.0]).with_network_flow(1.0, 0.0),
+        )
+        .pixels()
+        .to_vec();
 
-    assert_eq!(active.width(), calm.width());
-    assert_eq!(active.height(), calm.height());
-    assert_ne!(active.pixels(), calm.pixels());
-    assert_ne!(active.pixel(8, 4), Some(Rgba::TRANSPARENT));
+    assert_eq!(active.len(), calm.len());
+    assert_ne!(active, calm);
+    assert_ne!(active[4 * 16 + 8], Rgba::TRANSPARENT);
 }
 
 #[test]

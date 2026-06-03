@@ -81,45 +81,36 @@ impl ActivitySmoother {
         }
     }
 
-    pub fn step_towards(&mut self, target: &SceneActivity) -> SceneActivity {
-        self.current = blend_scene_activity(&self.current, target, self.response);
-        self.current.clone()
+    pub fn step_towards(&mut self, target: &SceneActivity) -> &SceneActivity {
+        blend_scene_activity_into(&mut self.current, target, self.response);
+        &self.current
     }
 }
 
-fn blend_scene_activity(
-    current: &SceneActivity,
-    target: &SceneActivity,
-    response: f32,
-) -> SceneActivity {
+fn blend_scene_activity_into(current: &mut SceneActivity, target: &SceneActivity, response: f32) {
     let core_count = target.core_loads().len();
-    let mut core_loads = Vec::with_capacity(core_count);
+    current.core_loads.resize(core_count, 0.0);
     for index in 0..core_count {
-        core_loads.push(blend(
-            current.core_loads().get(index).copied().unwrap_or(0.0),
+        current.core_loads[index] = blend(
+            current.core_loads[index],
             target.core_loads()[index],
             response,
-        ));
+        );
     }
 
-    SceneActivity::from_core_loads(core_loads)
-        .with_memory_pressure(blend(
-            current.memory_pressure(),
-            target.memory_pressure(),
-            response,
-        ))
-        .with_network_flow(
-            blend(
-                current.network_download(),
-                target.network_download(),
-                response,
-            ),
-            blend(current.network_upload(), target.network_upload(), response),
-        )
-        .with_disk_activity(
-            blend(current.disk_read(), target.disk_read(), response),
-            blend(current.disk_write(), target.disk_write(), response),
-        )
+    current.memory_pressure = blend(
+        current.memory_pressure(),
+        target.memory_pressure(),
+        response,
+    );
+    current.network_download = blend(
+        current.network_download(),
+        target.network_download(),
+        response,
+    );
+    current.network_upload = blend(current.network_upload(), target.network_upload(), response);
+    current.disk_read = blend(current.disk_read(), target.disk_read(), response);
+    current.disk_write = blend(current.disk_write(), target.disk_write(), response);
 }
 
 fn blend(current: f32, target: f32, response: f32) -> f32 {
