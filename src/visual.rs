@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use crate::{
     canvas::{Canvas, CanvasError, Rgba},
     simulation::SceneActivity,
@@ -133,10 +135,14 @@ impl SceneLayer for FlowTintLayer {
 }
 
 fn probe_layers(config: ProbeCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
+    // Trails and seeds are separate visual layers, but they must share motion
+    // state so the afterglow follows the actual lifeform positions.
+    let lifeforms = Rc::new(RefCell::new(LifeformField::new(11, config)));
     vec![
         Box::new(BackgroundFieldLayer),
         Box::new(ActivityPulseLayer),
-        Box::new(LifeformSeedLayer::new(config)),
+        Box::new(LifeformTrailLayer::new(lifeforms.clone())),
+        Box::new(LifeformSeedLayer::new(lifeforms)),
         Box::new(FlowTintLayer),
     ]
 }
@@ -146,6 +152,20 @@ pub struct LifeformSnapshot {
     pub x: f32,
     pub y: f32,
     pub energy: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LifeformTrailSnapshot {
+    pub x: f32,
+    pub y: f32,
+    pub intensity: f32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LifeformTrailConfig;
+
+impl LifeformTrailConfig {
+    pub const DEFAULT_CAPACITY: usize = 8;
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -167,12 +187,19 @@ impl LifeformField {
             let vx = 0.18 + (index % 3) as f32 * 0.05;
             let vy = 0.10 + (index % 5) as f32 * 0.035;
             let energy = 0.45 + (index % 4) as f32 * 0.12;
+            let mut trail = Vec::with_capacity(LifeformTrailConfig::DEFAULT_CAPACITY);
+            trail.push(LifeformTrailPoint {
+                x,
+                y,
+                intensity: 1.0,
+            });
             seeds.push(LifeformSeed {
                 x,
                 y,
                 vx,
                 vy,
                 energy,
+                trail,
             });
         }
 
@@ -188,16 +215,41 @@ impl LifeformField {
 
         for (index, seed) in self.seeds.iter_mut().enumerate() {
             let drift = ((tick as f32 * 0.035) + index as f32).sin() * 0.08;
+            for point in &mut seed.trail {
+                point.intensity *= 0.78;
+            }
             seed.x = wrap(seed.x + (seed.vx + drift) * speed, width);
             seed.y = wrap(seed.y + (seed.vy - drift * 0.6) * speed, height);
             seed.energy =
                 (0.42 + cpu_energy * 0.38 + flow_energy * 0.22 + drift.abs()).clamp(0.2, 1.0);
+            seed.trail.insert(
+                0,
+                LifeformTrailPoint {
+                    x: seed.x,
+                    y: seed.y,
+                    intensity: seed.energy,
+                },
+            );
+            seed.trail.truncate(LifeformTrailConfig::DEFAULT_CAPACITY);
         }
     }
 
     pub fn render(&self, canvas: &mut Canvas) {
+        self.render_trails(canvas);
+        self.render_seeds(canvas);
+    }
+
+    pub fn render_seeds(&self, canvas: &mut Canvas) {
         for seed in &self.seeds {
             render_lifeform_seed(canvas, seed);
+        }
+    }
+
+    pub fn render_trails(&self, canvas: &mut Canvas) {
+        for seed in &self.seeds {
+            for (age, point) in seed.trail.iter().enumerate().skip(1) {
+                render_lifeform_trail_point(canvas, point, age);
+            }
         }
     }
 
@@ -211,27 +263,67 @@ impl LifeformField {
             })
             .collect()
     }
+
+    pub fn trail_snapshots(&self) -> Vec<LifeformTrailSnapshot> {
+        self.seeds
+            .iter()
+            .flat_map(|seed| {
+                seed.trail.iter().map(|point| LifeformTrailSnapshot {
+                    x: point.x,
+                    y: point.y,
+                    intensity: point.intensity,
+                })
+            })
+            .collect()
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 struct LifeformSeed {
     x: f32,
     y: f32,
     vx: f32,
     vy: f32,
     energy: f32,
+    trail: Vec<LifeformTrailPoint>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct LifeformTrailPoint {
+    x: f32,
+    y: f32,
+    intensity: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct LifeformTrailLayer {
+    field: Rc<RefCell<LifeformField>>,
+}
+
+impl LifeformTrailLayer {
+    fn new(field: Rc<RefCell<LifeformField>>) -> Self {
+        Self { field }
+    }
+}
+
+impl SceneLayer for LifeformTrailLayer {
+    fn name(&self) -> &'static str {
+        "lifeform_trails"
+    }
+
+    fn render(&mut self, canvas: &mut Canvas, _frame: SceneFrame<'_>) {
+        self.field.borrow().render_trails(canvas);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 struct LifeformSeedLayer {
-    field: LifeformField,
+    field: Rc<RefCell<LifeformField>>,
 }
 
 impl LifeformSeedLayer {
-    fn new(bounds: ProbeCanvasConfig) -> Self {
-        Self {
-            field: LifeformField::new(11, bounds),
-        }
+    fn new(field: Rc<RefCell<LifeformField>>) -> Self {
+        Self { field }
     }
 }
 
@@ -241,8 +333,9 @@ impl SceneLayer for LifeformSeedLayer {
     }
 
     fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
-        self.field.update(frame.tick(), frame.activity());
-        self.field.render(canvas);
+        let mut field = self.field.borrow_mut();
+        field.update(frame.tick(), frame.activity());
+        field.render_seeds(canvas);
     }
 }
 
@@ -325,6 +418,43 @@ fn render_lifeform_seed(canvas: &mut Canvas, seed: &LifeformSeed) {
                 add_channel(current.r, 45.0 * energy),
                 add_channel(current.g, 120.0 * energy),
                 add_channel(current.b, 85.0 * energy),
+            );
+            let _ = canvas.set_pixel(x, y, next);
+        }
+    }
+}
+
+fn render_lifeform_trail_point(canvas: &mut Canvas, point: &LifeformTrailPoint, age: usize) {
+    let center_x = point.x.round() as i32;
+    let center_y = point.y.round() as i32;
+    let radius = 1_i32;
+    let age_falloff = 1.0 / (age as f32 + 1.0);
+
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let x = center_x + dx;
+            let y = center_y + dy;
+            if x < 0 || y < 0 {
+                continue;
+            }
+
+            let x = x as u16;
+            let y = y as u16;
+            let Some(current) = canvas.pixel(x, y) else {
+                continue;
+            };
+
+            let distance = ((dx * dx + dy * dy) as f32).sqrt();
+            let influence = (1.0 - distance / 2.0).clamp(0.0, 1.0);
+            if influence <= 0.0 {
+                continue;
+            }
+
+            let energy = point.intensity * age_falloff * influence;
+            let next = Rgba::rgb(
+                add_channel(current.r, 18.0 * energy),
+                add_channel(current.g, 55.0 * energy),
+                add_channel(current.b, 42.0 * energy),
             );
             let _ = canvas.set_pixel(x, y, next);
         }

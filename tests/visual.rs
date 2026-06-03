@@ -1,7 +1,10 @@
 use ecosystem::{
     canvas::{Canvas, Rgba},
     simulation::SceneActivity,
-    visual::{LayeredScene, LifeformField, ProbeCanvasConfig, ProbeScene, SceneFrame, SceneLayer},
+    visual::{
+        LayeredScene, LifeformField, LifeformTrailConfig, ProbeCanvasConfig, ProbeScene,
+        SceneFrame, SceneLayer,
+    },
 };
 
 struct FillLayer {
@@ -92,6 +95,7 @@ fn probe_scene_exposes_named_internal_composition_layers() {
         [
             "background_field",
             "activity_pulse",
+            "lifeform_trails",
             "lifeform_seeds",
             "flow_tint"
         ]
@@ -127,6 +131,50 @@ fn lifeform_field_moves_seeds_without_leaving_canvas_bounds() {
     assert_ne!(after, before);
     assert!(after.iter().all(|seed| seed.x >= 0.0 && seed.x < 32.0));
     assert!(after.iter().all(|seed| seed.y >= 0.0 && seed.y < 18.0));
+}
+
+#[test]
+fn lifeform_field_keeps_bounded_trail_history() {
+    let mut field = LifeformField::new(2, ProbeCanvasConfig::new(32, 18));
+
+    for tick in 0..12 {
+        field.update(tick, &SceneActivity::from_core_loads(vec![0.7]));
+    }
+
+    let trails = field.trail_snapshots();
+
+    assert_eq!(trails.len(), 2 * LifeformTrailConfig::DEFAULT_CAPACITY);
+    assert!(trails.iter().all(|trail| trail.x >= 0.0 && trail.x < 32.0));
+    assert!(trails.iter().all(|trail| trail.y >= 0.0 && trail.y < 18.0));
+    assert!(trails.iter().all(|trail| trail.intensity > 0.0));
+    assert!(trails.iter().all(|trail| trail.intensity <= 1.0));
+}
+
+#[test]
+fn lifeform_trails_render_fainter_than_current_seed_points() {
+    let mut field = LifeformField::new(1, ProbeCanvasConfig::new(32, 18));
+    let mut trail_canvas = Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
+    let mut seed_canvas = Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
+
+    for tick in 0..6 {
+        field.update(tick, &SceneActivity::from_core_loads(vec![0.8]));
+    }
+    field.render_trails(&mut trail_canvas);
+    field.render_seeds(&mut seed_canvas);
+
+    let trail_energy: u32 = trail_canvas
+        .pixels()
+        .iter()
+        .map(|pixel| u32::from(pixel.r) + u32::from(pixel.g) + u32::from(pixel.b))
+        .sum();
+    let seed_energy: u32 = seed_canvas
+        .pixels()
+        .iter()
+        .map(|pixel| u32::from(pixel.r) + u32::from(pixel.g) + u32::from(pixel.b))
+        .sum();
+
+    assert!(trail_energy > 0);
+    assert!(trail_energy < seed_energy);
 }
 
 #[test]

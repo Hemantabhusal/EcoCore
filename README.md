@@ -18,7 +18,7 @@ The project currently contains:
 - Double-buffered Kitty image ids to reduce visible delete/recreate flicker.
 - Renderer-side frame byte counters and protocol statistics for performance checks.
 - Reused Kitty encode scratch buffers for RGBA packing and base64 output.
-- A temporary layered probe scene with background, activity pulse, lifeform seed, and flow tint layers.
+- A temporary layered probe scene with background, activity pulse, lifeform trail, lifeform seed, and flow tint layers.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
 - Trace diagnostics for development and verification.
 
