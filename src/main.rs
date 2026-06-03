@@ -7,27 +7,25 @@ use std::{
 use crossterm::event::{self, Event};
 use ecosystem::{
     app::{StartupEnvironment, prepare_startup},
-    canvas::Canvas,
     diagnostics::{TraceCollector, TraceEvent},
     input::{EngineAction, key_event_to_action},
-    kitty::{KittyGraphicsEncoder, KittyImageId, KittyPlacement},
-    layout::{ImagePlacement, centered_image_placement},
+    kitty::KittyImageId,
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
     metrics::disk::{DiskSampler, DiskSamplerStatus},
     metrics::memory::MemorySampler,
     metrics::network::{NetworkSampler, NetworkSamplerStatus},
+    renderer::{KittyRenderer, KittyRendererConfig},
     runtime::{ResizeDebouncer, ResizeDecision, RuntimeConfig},
     simulation::{ActivitySmoother, SceneActivity},
     terminal::{
         TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen, current_terminal_size,
-        move_cursor_to,
     },
     visual::{ProbeCanvasConfig, build_probe_canvas},
 };
 
 const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const ACTIVITY_SMOOTHING_RESPONSE: f32 = 0.25;
-const SPIKE_IMAGE_ID: KittyImageId = KittyImageId::new(1);
+const KITTY_IMAGE_IDS: [KittyImageId; 2] = [KittyImageId::new(1), KittyImageId::new(2)];
 
 fn main() -> ExitCode {
     let mut traces = if std::env::var_os("ECOSYSTEM_TRACE").is_some() {
@@ -65,7 +63,11 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
 
     let stdout = io::stdout();
     let mut session = TerminalSession::start(stdout.lock(), TerminalSessionOptions::default())?;
-    let kitty_encoder = KittyGraphicsEncoder::new(SPIKE_IMAGE_ID);
+    let mut renderer = KittyRenderer::new(KittyRendererConfig {
+        image_ids: KITTY_IMAGE_IDS,
+        image_columns: config.image_columns,
+        image_rows: config.image_rows,
+    });
     traces.record(TraceEvent::new(
         "input",
         "entering frame loop; press q or Esc to quit",
@@ -162,12 +164,18 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             match decision {
                 ResizeDecision::Redraw { size: new_size } => {
                     size = new_size;
-                    redraw_after_resize(&mut session, size, traces)?;
+                    redraw_after_resize(&mut session, &mut renderer, size, traces)?;
                     output_suspended = false;
                     next_frame_at = Instant::now() + frame_duration;
                 }
                 ResizeDecision::Suspend { actual, minimum } => {
-                    suspend_for_unsupported_resize(&mut session, actual, minimum, traces)?;
+                    suspend_for_unsupported_resize(
+                        &mut session,
+                        &mut renderer,
+                        actual,
+                        minimum,
+                        traces,
+                    )?;
                     output_suspended = true;
                 }
             }
@@ -186,9 +194,9 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     &scene_activity,
                 )?;
                 let encode_started = Instant::now();
-                let (output, placement) = encode_positioned_frame(&config, size, &canvas);
+                let frame = renderer.render_frame(size, &canvas);
                 let encode_time = encode_started.elapsed();
-                session.writer_mut().write_all(&output)?;
+                session.writer_mut().write_all(&frame.bytes)?;
                 session.writer_mut().flush()?;
 
                 if tick.is_multiple_of(u64::from(config.target_fps)) {
@@ -198,11 +206,11 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                             "tick {tick}: {}x{} canvas, {}x{} cells at {},{}, {} bytes sent, encode {:?}, frame {:?}",
                             canvas.width(),
                             canvas.height(),
-                            placement.columns,
-                            placement.rows,
-                            placement.cursor_column,
-                            placement.cursor_row,
-                            output.len(),
+                            frame.placement.columns,
+                            frame.placement.rows,
+                            frame.placement.cursor_column,
+                            frame.placement.cursor_row,
+                            frame.bytes.len(),
                             encode_time,
                             frame_started.elapsed()
                         ),
@@ -248,9 +256,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
         }
     }
 
-    session
-        .writer_mut()
-        .write_all(&kitty_encoder.encode_delete())?;
+    session.writer_mut().write_all(&renderer.reset())?;
     session.writer_mut().flush()?;
     session.finish()?;
 
@@ -259,13 +265,12 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
 
 fn redraw_after_resize<W: Write>(
     session: &mut TerminalSession<W>,
+    renderer: &mut KittyRenderer,
     size: TerminalSize,
     traces: &mut TraceCollector,
 ) -> io::Result<()> {
     session.writer_mut().write_all(clear_screen())?;
-    session
-        .writer_mut()
-        .write_all(&KittyGraphicsEncoder::new(SPIKE_IMAGE_ID).encode_delete())?;
+    session.writer_mut().write_all(&renderer.reset())?;
     session.writer_mut().flush()?;
     traces.record(TraceEvent::new(
         "terminal.resize",
@@ -275,33 +280,15 @@ fn redraw_after_resize<W: Write>(
     Ok(())
 }
 
-fn encode_positioned_frame(
-    config: &RuntimeConfig,
-    terminal_size: TerminalSize,
-    canvas: &Canvas,
-) -> (Vec<u8>, ImagePlacement) {
-    let placement =
-        centered_image_placement(terminal_size, config.image_columns, config.image_rows);
-    let mut output = move_cursor_to(placement.cursor_column, placement.cursor_row);
-    output.extend_from_slice(
-        &KittyGraphicsEncoder::new(SPIKE_IMAGE_ID)
-            .with_placement(KittyPlacement::new(placement.columns, placement.rows))
-            .encode_canvas(canvas),
-    );
-
-    (output, placement)
-}
-
 fn suspend_for_unsupported_resize<W: Write>(
     session: &mut TerminalSession<W>,
+    renderer: &mut KittyRenderer,
     actual: TerminalSize,
     minimum: TerminalSize,
     traces: &mut TraceCollector,
 ) -> io::Result<()> {
     session.writer_mut().write_all(clear_screen())?;
-    session
-        .writer_mut()
-        .write_all(&KittyGraphicsEncoder::new(SPIKE_IMAGE_ID).encode_delete())?;
+    session.writer_mut().write_all(&renderer.reset())?;
     session.writer_mut().flush()?;
     traces.record(TraceEvent::new(
         "terminal.resize",

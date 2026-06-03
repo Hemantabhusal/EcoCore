@@ -5,6 +5,7 @@ pub mod input;
 pub mod kitty;
 pub mod layout;
 pub mod metrics;
+pub mod renderer;
 pub mod runtime;
 pub mod simulation;
 pub mod terminal;
