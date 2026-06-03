@@ -9,7 +9,8 @@ use ecosystem::{
     kitty::KittyImageId,
     layout::ImagePlacement,
     runtime::{
-        ResizeDebouncer, ResizeDecision, RuntimeConfig, resize_decision, target_frame_duration,
+        ResizeDebouncer, ResizeDecision, RuntimeConfig, advance_frame_deadline, resize_decision,
+        target_frame_duration,
     },
     simulation::{ActivitySmoother, SceneActivity},
     terminal::{
@@ -316,6 +317,32 @@ fn runtime_default_targets_thirty_frames_per_second() {
     assert_eq!(config.canvas_height, 135);
     assert_eq!(config.image_columns, 30);
     assert_eq!(config.image_rows, 10);
+}
+
+#[test]
+fn frame_deadline_advances_from_previous_deadline_instead_of_frame_finish_time() {
+    let start = Instant::now();
+    let frame_duration = Duration::from_millis(33);
+    let previous_deadline = start + frame_duration;
+    let frame_finished_at = previous_deadline + Duration::from_millis(20);
+
+    let next_deadline =
+        advance_frame_deadline(previous_deadline, frame_duration, frame_finished_at);
+
+    assert_eq!(next_deadline, previous_deadline + frame_duration);
+}
+
+#[test]
+fn frame_deadline_skips_missed_deadlines_after_large_overrun() {
+    let start = Instant::now();
+    let frame_duration = Duration::from_millis(33);
+    let previous_deadline = start + frame_duration;
+    let frame_finished_at = previous_deadline + Duration::from_millis(90);
+
+    let next_deadline =
+        advance_frame_deadline(previous_deadline, frame_duration, frame_finished_at);
+
+    assert_eq!(next_deadline, previous_deadline + frame_duration * 3);
 }
 
 #[test]

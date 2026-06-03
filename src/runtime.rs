@@ -41,6 +41,23 @@ pub fn target_frame_duration(target_fps: u16) -> Duration {
     Duration::from_nanos(1_000_000_000 / fps)
 }
 
+pub fn advance_frame_deadline(
+    previous_deadline: Instant,
+    frame_duration: Duration,
+    now: Instant,
+) -> Instant {
+    if frame_duration.is_zero() {
+        return now;
+    }
+
+    let mut next_deadline = previous_deadline + frame_duration;
+    while next_deadline <= now {
+        next_deadline += frame_duration;
+    }
+
+    next_deadline
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ResizeDecision {
     Redraw {

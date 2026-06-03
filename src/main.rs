@@ -15,7 +15,7 @@ use ecosystem::{
     metrics::memory::MemorySampler,
     metrics::network::{NetworkSampler, NetworkSamplerStatus},
     renderer::{KittyRenderer, KittyRendererConfig},
-    runtime::{ResizeDebouncer, ResizeDecision, RuntimeConfig},
+    runtime::{ResizeDebouncer, ResizeDecision, RuntimeConfig, advance_frame_deadline},
     simulation::{ActivitySmoother, SceneActivity},
     terminal::{
         TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen, current_terminal_size,
@@ -233,7 +233,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             }
 
             tick = tick.wrapping_add(1);
-            next_frame_at = Instant::now() + frame_duration;
+            next_frame_at = advance_frame_deadline(next_frame_at, frame_duration, Instant::now());
             continue;
         }
 

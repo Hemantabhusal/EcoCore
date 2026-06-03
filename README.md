@@ -18,6 +18,7 @@ The project currently contains:
 - Double-buffered Kitty image ids to reduce visible delete/recreate flicker.
 - Renderer-side frame byte counters and protocol statistics for performance checks.
 - Reused Kitty encode scratch buffers for RGBA packing and base64 output.
+- Deadline-based frame pacing that preserves the 30 FPS target cadence and skips missed frame slots after overruns.
 - A temporary layered probe scene with background, activity pulse, lifeform trail, lifeform seed, and flow tint layers.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
 - Trace diagnostics for development and verification, including structured `graphics.frame` snapshots with measured FPS, encode time, frame time, placement, image ids, and protocol bytes.
@@ -70,6 +71,7 @@ tests/              Canvas, terminal, runtime, simulation, and metric tests
 - Treat Kitty graphics protocol output as the primary future backend.
 - Do not add alternate render backends unless they solve a real implementation problem.
 - Keep simulation/update rates separate from display FPS.
+- Advance frame scheduling from previous frame deadlines instead of frame completion time.
 - Measure frame time, encode time, bytes sent, FPS, memory, and CPU.
 - Keep the frame pipeline allocation-conscious as scene complexity grows.
 - Keep graphics measurement trace output stable enough to compare manual Kitty runs across visual changes.
