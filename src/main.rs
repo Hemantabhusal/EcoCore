@@ -20,7 +20,7 @@ use ecosystem::{
     terminal::{
         TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen, current_terminal_size,
     },
-    visual::{ProbeCanvasConfig, build_probe_canvas},
+    visual::{ProbeCanvasConfig, ProbeScene},
 };
 
 const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -68,6 +68,10 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
         image_columns: config.image_columns,
         image_rows: config.image_rows,
     });
+    let mut visual_scene = ProbeScene::new(ProbeCanvasConfig::new(
+        config.canvas_width,
+        config.canvas_height,
+    ))?;
     traces.record(TraceEvent::new(
         "input",
         "entering frame loop; press q or Esc to quit",
@@ -188,13 +192,9 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                 // keeps future canvas state responsive without snapping every sample tick.
                 let scene_activity = activity_smoother.step_towards(&target_activity);
                 let frame_started = Instant::now();
-                let canvas = build_probe_canvas(
-                    ProbeCanvasConfig::new(config.canvas_width, config.canvas_height),
-                    tick,
-                    &scene_activity,
-                )?;
+                let canvas = visual_scene.render(tick, &scene_activity);
                 let encode_started = Instant::now();
-                let frame = renderer.render_frame(size, &canvas);
+                let frame = renderer.render_frame(size, canvas);
                 let encode_time = encode_started.elapsed();
                 session.writer_mut().write_all(&frame.bytes)?;
                 session.writer_mut().flush()?;

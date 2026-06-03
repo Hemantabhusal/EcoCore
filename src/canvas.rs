@@ -120,6 +120,11 @@ impl Canvas {
         &self.pixels
     }
 
+    pub fn pixels_mut(&mut self) -> &mut [Rgba] {
+        self.dirty_region = Some(DirtyRegion::full(self.width, self.height));
+        &mut self.pixels
+    }
+
     pub fn pixel(&self, x: u16, y: u16) -> Option<Rgba> {
         self.index(x, y).map(|index| self.pixels[index])
     }
