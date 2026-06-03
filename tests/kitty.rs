@@ -1,6 +1,6 @@
 use ecosystem::{
     canvas::{Canvas, Rgba},
-    kitty::{KittyGraphicsEncoder, KittyImageId, KittyPlacement},
+    kitty::{KittyEncodeScratch, KittyGraphicsEncoder, KittyImageId, KittyPlacement},
 };
 
 #[test]
@@ -46,6 +46,22 @@ fn kitty_encoder_can_place_canvas_in_a_terminal_cell_rectangle() {
     let command = String::from_utf8(bytes).expect("kitty commands are utf8");
 
     assert!(command.starts_with("\u{1b}_Ga=T,f=32,i=11,s=2,v=1,c=30,r=10,C=1,m=0;"));
+}
+
+#[test]
+fn kitty_encoder_can_reuse_encode_scratch_buffers() {
+    let canvas = Canvas::new(2, 1, Rgba::rgb(10, 20, 30)).expect("valid canvas");
+    let encoder = KittyGraphicsEncoder::new(KittyImageId::new(12));
+    let mut scratch = KittyEncodeScratch::default();
+    let mut first = Vec::new();
+    let mut second = Vec::new();
+
+    encoder.append_canvas_with_scratch(&canvas, &mut first, &mut scratch);
+    let first_capacities = scratch.capacities();
+    encoder.append_canvas_with_scratch(&canvas, &mut second, &mut scratch);
+
+    assert_eq!(first, second);
+    assert_eq!(scratch.capacities(), first_capacities);
 }
 
 #[test]

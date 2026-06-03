@@ -25,6 +25,9 @@ impl Default for RuntimeConfig {
             target_fps: 30,
             metrics_sample_interval: Duration::from_millis(500),
             resize_debounce: Duration::from_millis(50),
+            // Temporary Phase 3 probe sizing. Canvas pixels and terminal cell
+            // placement are intentionally fixed until cell-size-aware layout
+            // is measured in the Kitty backend.
             canvas_width: 240,
             canvas_height: 135,
             image_columns: 30,
@@ -99,46 +102,4 @@ impl ResizeDebouncer {
         self.ready_at = None;
         Some(resize_decision(size))
     }
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct FrameStats {
-    frames: u64,
-    changed_cells: u64,
-    bytes: u64,
-}
-
-impl FrameStats {
-    pub fn record_frame(&mut self, changed_cells: usize, bytes: usize) {
-        self.frames += 1;
-        self.changed_cells += changed_cells as u64;
-        self.bytes += bytes as u64;
-    }
-
-    pub const fn frames(&self) -> u64 {
-        self.frames
-    }
-
-    pub fn average_changed_cells(&self) -> u64 {
-        average(self.changed_cells, self.frames)
-    }
-
-    pub fn average_bytes(&self) -> u64 {
-        average(self.bytes, self.frames)
-    }
-
-    pub fn take_summary(&mut self) -> String {
-        let summary = format!(
-            "{} frames, avg {} changed cells, avg {} bytes",
-            self.frames,
-            self.average_changed_cells(),
-            self.average_bytes()
-        );
-        *self = Self::default();
-        summary
-    }
-}
-
-fn average(total: u64, count: u64) -> u64 {
-    total.checked_div(count).unwrap_or(0)
 }

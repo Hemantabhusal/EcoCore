@@ -1,3 +1,5 @@
+use std::io::Write as _;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::canvas::Canvas;
@@ -50,31 +52,42 @@ impl KittyGraphicsEncoder {
     }
 
     pub fn append_canvas(&self, canvas: &Canvas, bytes: &mut Vec<u8>) {
-        let rgba = canvas_rgba_bytes(canvas);
-        let payload = STANDARD.encode(rgba);
-        let chunk_size = self.chunk_size.max(1);
-        let chunk_count = payload.len().div_ceil(chunk_size).max(1);
-        bytes.reserve(payload.len() + chunk_count * 64);
+        let mut scratch = KittyEncodeScratch::default();
+        self.append_canvas_with_scratch(canvas, bytes, &mut scratch);
+    }
 
-        for (index, chunk) in payload.as_bytes().chunks(chunk_size).enumerate() {
+    pub fn append_canvas_with_scratch(
+        &self,
+        canvas: &Canvas,
+        bytes: &mut Vec<u8>,
+        scratch: &mut KittyEncodeScratch,
+    ) {
+        scratch.load_canvas(canvas);
+        STANDARD.encode_string(&scratch.rgba, &mut scratch.payload);
+        let chunk_size = self.chunk_size.max(1);
+        let chunk_count = scratch.payload.len().div_ceil(chunk_size).max(1);
+        bytes.reserve(scratch.payload.len() + chunk_count * 64);
+
+        for (index, chunk) in scratch.payload.as_bytes().chunks(chunk_size).enumerate() {
             let more_chunks = usize::from(index + 1 < chunk_count);
             if index == 0 {
-                let mut command = format!(
+                write!(
+                    bytes,
                     "\x1b_Ga=T,f=32,i={},s={},v={}",
                     self.image_id.value(),
                     canvas.width(),
                     canvas.height()
-                );
+                )
+                .expect("writing to an in-memory byte buffer cannot fail");
                 if let Some(placement) = self.placement {
-                    command.push_str(&format!(
-                        ",c={},r={},C=1",
-                        placement.columns, placement.rows
-                    ));
+                    write!(bytes, ",c={},r={},C=1", placement.columns, placement.rows)
+                        .expect("writing to an in-memory byte buffer cannot fail");
                 }
-                command.push_str(&format!(",m={more_chunks};"));
-                bytes.extend_from_slice(command.as_bytes());
+                write!(bytes, ",m={more_chunks};")
+                    .expect("writing to an in-memory byte buffer cannot fail");
             } else {
-                bytes.extend_from_slice(format!("\x1b_Gm={more_chunks};").as_bytes());
+                write!(bytes, "\x1b_Gm={more_chunks};")
+                    .expect("writing to an in-memory byte buffer cannot fail");
             }
             bytes.extend_from_slice(chunk);
             bytes.extend_from_slice(b"\x1b\\");
@@ -88,9 +101,31 @@ impl KittyGraphicsEncoder {
     }
 
     pub fn append_delete(&self, bytes: &mut Vec<u8>) {
-        bytes.extend_from_slice(
-            format!("\x1b_Ga=d,d=i,i={};\x1b\\", self.image_id.value()).as_bytes(),
-        );
+        write!(bytes, "\x1b_Ga=d,d=i,i={};\x1b\\", self.image_id.value())
+            .expect("writing to an in-memory byte buffer cannot fail");
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct KittyEncodeScratch {
+    rgba: Vec<u8>,
+    payload: String,
+}
+
+impl KittyEncodeScratch {
+    fn load_canvas(&mut self, canvas: &Canvas) {
+        self.rgba.clear();
+        self.payload.clear();
+        self.rgba
+            .reserve(usize::from(canvas.width()) * usize::from(canvas.height()) * 4);
+        for pixel in canvas.pixels() {
+            self.rgba
+                .extend_from_slice(&[pixel.r, pixel.g, pixel.b, pixel.a]);
+        }
+    }
+
+    pub fn capacities(&self) -> (usize, usize) {
+        (self.rgba.capacity(), self.payload.capacity())
     }
 }
 
@@ -107,13 +142,4 @@ impl KittyPlacement {
 
         Self { columns, rows }
     }
-}
-
-fn canvas_rgba_bytes(canvas: &Canvas) -> Vec<u8> {
-    let mut bytes =
-        Vec::with_capacity(usize::from(canvas.width()) * usize::from(canvas.height()) * 4);
-    for pixel in canvas.pixels() {
-        bytes.extend_from_slice(&[pixel.r, pixel.g, pixel.b, pixel.a]);
-    }
-    bytes
 }

@@ -1,6 +1,6 @@
 use crate::{
     canvas::Canvas,
-    kitty::{KittyGraphicsEncoder, KittyImageId, KittyPlacement},
+    kitty::{KittyEncodeScratch, KittyGraphicsEncoder, KittyImageId, KittyPlacement},
     layout::{ImagePlacement, centered_image_placement},
     terminal::{TerminalSize, move_cursor_to},
 };
@@ -26,15 +26,17 @@ pub struct KittyRenderer {
     next_buffer_index: usize,
     visible_image_id: Option<KittyImageId>,
     stats: KittyRendererStats,
+    encode_scratch: KittyEncodeScratch,
 }
 
 impl KittyRenderer {
-    pub const fn new(config: KittyRendererConfig) -> Self {
+    pub fn new(config: KittyRendererConfig) -> Self {
         Self {
             config,
             next_buffer_index: 0,
             visible_image_id: None,
             stats: KittyRendererStats::new(),
+            encode_scratch: KittyEncodeScratch::default(),
         }
     }
 
@@ -56,7 +58,7 @@ impl KittyRenderer {
         let mut bytes = move_cursor_to(placement.cursor_column, placement.cursor_row);
         KittyGraphicsEncoder::new(image_id)
             .with_placement(KittyPlacement::new(placement.columns, placement.rows))
-            .append_canvas(canvas, &mut bytes);
+            .append_canvas_with_scratch(canvas, &mut bytes, &mut self.encode_scratch);
 
         // Draw the new image before deleting the previous buffer so the
         // terminal is less likely to show an empty placement between frames.
