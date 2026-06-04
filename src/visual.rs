@@ -170,6 +170,8 @@ pub struct LifeformSnapshot {
     pub x: f32,
     pub y: f32,
     pub energy: f32,
+    pub heading_x: f32,
+    pub heading_y: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -204,6 +206,7 @@ impl LifeformField {
             let y = ((phase.cos() * 0.5 + 0.5) * (height - 1.0)).clamp(0.0, height - 1.0);
             let vx = 0.18 + (index % 3) as f32 * 0.05;
             let vy = 0.10 + (index % 5) as f32 * 0.035;
+            let (heading_x, heading_y) = normalize_direction(vx, vy);
             let energy = 0.45 + (index % 4) as f32 * 0.12;
             let mut trail = Vec::with_capacity(LifeformTrailConfig::DEFAULT_CAPACITY);
             trail.push(LifeformTrailPoint {
@@ -216,7 +219,10 @@ impl LifeformField {
                 y,
                 vx,
                 vy,
+                heading_x,
+                heading_y,
                 energy,
+                pulse: 0.0,
                 trail,
             });
         }
@@ -233,13 +239,22 @@ impl LifeformField {
 
         for (index, seed) in self.seeds.iter_mut().enumerate() {
             let drift = ((tick as f32 * 0.035) + index as f32).sin() * 0.08;
+            let move_x = (seed.vx + drift) * speed;
+            let move_y = (seed.vy - drift * 0.6) * speed;
+            let (heading_x, heading_y) = normalize_direction(move_x, move_y);
             for point in &mut seed.trail {
                 point.intensity *= 0.78;
             }
-            seed.x = wrap(seed.x + (seed.vx + drift) * speed, width);
-            seed.y = wrap(seed.y + (seed.vy - drift * 0.6) * speed, height);
+            seed.x = wrap(seed.x + move_x, width);
+            seed.y = wrap(seed.y + move_y, height);
+            seed.heading_x = blend(seed.heading_x, heading_x, 0.28);
+            seed.heading_y = blend(seed.heading_y, heading_y, 0.28);
+            let (heading_x, heading_y) = normalize_direction(seed.heading_x, seed.heading_y);
+            seed.heading_x = heading_x;
+            seed.heading_y = heading_y;
             seed.energy =
                 (0.42 + cpu_energy * 0.38 + flow_energy * 0.22 + drift.abs()).clamp(0.2, 1.0);
+            seed.pulse = wave01(tick as f32 * (0.13 + cpu_energy * 0.16) + index as f32 * 0.9);
             seed.trail.insert(
                 0,
                 LifeformTrailPoint {
@@ -278,6 +293,8 @@ impl LifeformField {
                 x: seed.x,
                 y: seed.y,
                 energy: seed.energy,
+                heading_x: seed.heading_x,
+                heading_y: seed.heading_y,
             })
             .collect()
     }
@@ -302,7 +319,10 @@ struct LifeformSeed {
     y: f32,
     vx: f32,
     vy: f32,
+    heading_x: f32,
+    heading_y: f32,
     energy: f32,
+    pulse: f32,
     trail: Vec<LifeformTrailPoint>,
 }
 
@@ -442,12 +462,20 @@ fn draw_current_bands(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) 
 fn render_lifeform_seed(canvas: &mut Canvas, seed: &LifeformSeed) {
     let center_x = seed.x.round() as i32;
     let center_y = seed.y.round() as i32;
-    let radius = 4_i32;
+    let radius = 6_i32;
+    let side_x = -seed.heading_y;
+    let side_y = seed.heading_x;
+    let body_length = 5.8 + seed.energy * 2.4;
+    let body_width = 1.2 + seed.pulse * 0.45;
 
     for dy in -radius..=radius {
         for dx in -radius..=radius {
-            let distance = ((dx * dx + dy * dy) as f32).sqrt();
-            let influence = (1.0 - distance / (radius as f32 + 0.75)).clamp(0.0, 1.0);
+            let local_x = dx as f32 * seed.heading_x + dy as f32 * seed.heading_y;
+            let local_y = dx as f32 * side_x + dy as f32 * side_y;
+            let body = directional_body_influence(local_x, local_y, body_length, body_width);
+            let halo_distance = ((dx * dx + dy * dy) as f32).sqrt();
+            let halo = (1.0 - halo_distance / (radius as f32 + 1.0)).clamp(0.0, 1.0) * 0.22;
+            let influence = body.max(halo);
             if influence <= 0.0 {
                 continue;
             }
@@ -463,13 +491,19 @@ fn render_lifeform_seed(canvas: &mut Canvas, seed: &LifeformSeed) {
             let Some(current) = canvas.pixel(x, y) else {
                 continue;
             };
-            let halo = influence.powf(2.0);
-            let core = if distance <= 1.0 { 1.0 } else { 0.0 };
-            let energy = seed.energy * (halo + core * 0.65);
+            let head = head_influence(local_x, local_y, body_length, body_width);
+            let tail = tail_influence(local_x, local_y, body_length);
+            let energy = seed.energy * (influence.powf(1.35) + head * 0.85 + tail * 0.28);
             let next = Rgba::rgb(
-                add_channel(current.r, 20.0 * energy),
-                add_channel(current.g, 145.0 * energy),
-                add_channel(current.b, 125.0 * energy),
+                add_channel(current.r, (16.0 + head * 18.0 + tail * 10.0) * energy),
+                add_channel(
+                    current.g,
+                    (118.0 + seed.pulse * 46.0 + head * 32.0) * energy,
+                ),
+                add_channel(
+                    current.b,
+                    (110.0 + seed.pulse * 42.0 + tail * 20.0) * energy,
+                ),
             );
             let _ = canvas.set_pixel(x, y, next);
         }
@@ -542,6 +576,42 @@ fn average(values: &[f32]) -> f32 {
     }
 
     values.iter().sum::<f32>() / values.len() as f32
+}
+
+fn directional_body_influence(local_x: f32, local_y: f32, length: f32, width: f32) -> f32 {
+    let forward = (1.0 - (local_x.abs() / length)).clamp(0.0, 1.0);
+    let side = (1.0 - (local_y.abs() / width)).clamp(0.0, 1.0);
+    (forward * side).powf(0.85)
+}
+
+fn head_influence(local_x: f32, local_y: f32, length: f32, width: f32) -> f32 {
+    let head_x = length * 0.36;
+    let dx = (local_x - head_x) / (width * 1.15);
+    let dy = local_y / (width * 0.95);
+    (1.0 - (dx * dx + dy * dy).sqrt()).clamp(0.0, 1.0)
+}
+
+fn tail_influence(local_x: f32, local_y: f32, length: f32) -> f32 {
+    if local_x >= 0.0 {
+        return 0.0;
+    }
+
+    let taper = (1.0 - ((local_x + length * 0.45).abs() / (length * 0.55))).clamp(0.0, 1.0);
+    let centerline = (1.0 - local_y.abs() / 0.9).clamp(0.0, 1.0);
+    taper * centerline
+}
+
+fn normalize_direction(x: f32, y: f32) -> (f32, f32) {
+    let magnitude = (x * x + y * y).sqrt();
+    if magnitude <= f32::EPSILON {
+        return (1.0, 0.0);
+    }
+
+    (x / magnitude, y / magnitude)
+}
+
+fn blend(current: f32, target: f32, response: f32) -> f32 {
+    current + (target - current) * response.clamp(0.0, 1.0)
 }
 
 fn add_glow_point(canvas: &mut Canvas, center_x: u16, center_y: u16, radius: i32, energy: f32) {

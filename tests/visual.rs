@@ -231,6 +231,21 @@ fn lifeform_trails_render_fainter_than_current_seed_points() {
 }
 
 #[test]
+fn lifeform_seed_renders_directional_body_instead_of_round_dot() {
+    let mut field = LifeformField::new(1, ProbeCanvasConfig::new(48, 28));
+    let mut canvas = Canvas::new(48, 28, Rgba::rgb(0, 0, 0)).expect("valid canvas");
+
+    field.update(4, &SceneActivity::from_core_loads(vec![0.6]));
+    let lifeform = field.snapshots()[0];
+    field.render_seeds(&mut canvas);
+
+    let spans = lit_axis_spans(&canvas, lifeform.heading_x, lifeform.heading_y)
+        .expect("lifeform body renders lit pixels");
+
+    assert!(spans.forward >= spans.side * 1.6);
+}
+
+#[test]
 fn probe_scene_lifeform_layer_changes_pixels_over_time() {
     let mut scene = ProbeScene::new(ProbeCanvasConfig::new(32, 18)).expect("valid probe scene");
 
@@ -282,4 +297,42 @@ fn bright_pixel_count(pixels: &[Rgba]) -> usize {
         .iter()
         .filter(|pixel| u16::from(pixel.r) + u16::from(pixel.g) + u16::from(pixel.b) > 430)
         .count()
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct AxisSpans {
+    forward: f32,
+    side: f32,
+}
+
+fn lit_axis_spans(canvas: &Canvas, heading_x: f32, heading_y: f32) -> Option<AxisSpans> {
+    let side_x = -heading_y;
+    let side_y = heading_x;
+    let mut min_forward = f32::MAX;
+    let mut max_forward = f32::MIN;
+    let mut min_side = f32::MAX;
+    let mut max_side = f32::MIN;
+    let mut found = false;
+
+    for y in 0..canvas.height() {
+        for x in 0..canvas.width() {
+            let pixel = canvas.pixel(x, y).expect("pixel in bounds");
+            if u16::from(pixel.r) + u16::from(pixel.g) + u16::from(pixel.b) <= 90 {
+                continue;
+            }
+
+            let forward = f32::from(x) * heading_x + f32::from(y) * heading_y;
+            let side = f32::from(x) * side_x + f32::from(y) * side_y;
+            min_forward = min_forward.min(forward);
+            max_forward = max_forward.max(forward);
+            min_side = min_side.min(side);
+            max_side = max_side.max(side);
+            found = true;
+        }
+    }
+
+    found.then_some(AxisSpans {
+        forward: max_forward - min_forward,
+        side: max_side - min_side,
+    })
 }
