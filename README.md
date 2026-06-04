@@ -49,6 +49,14 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
+Trace mode is useful when checking Kitty graphics behavior:
+
+```sh
+ECOSYSTEM_TRACE=1 cargo run
+```
+
+For the current 240x135 probe canvas, local Kitty runs have usually held about 28-30 FPS outside resize-heavy windows, with roughly 173 KB/frame of protocol output. In `graphics.frame` traces, `skipped ... deadlines` indicates frame slots missed after an overrun, while `interrupted yes` usually means resize or suspend handling affected that measurement window.
+
 ## Project Layout
 
 ```text
