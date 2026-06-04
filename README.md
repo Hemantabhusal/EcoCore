@@ -77,9 +77,10 @@ the current full-frame path.
 The surface-light layer is the first intentional full-canvas art polish pass
 after the baseline. It should be checked with trace mode for frame-time impact,
 even though the encoded payload should remain tied to the fixed canvas size.
-The expensive lighting field is cached and refreshed every three ticks so
-surface shimmer/depth can run at about 10 Hz while the rest of the scene still
-renders at the 30 FPS target.
+The expensive environment composite is cached and refreshed every three ticks
+so deep water, surface shimmer, reef growth, and current bands run at about 10
+Hz while sparse lifeforms, wakes, motes, polyps, and sparks still render at the
+30 FPS target.
 
 Kitty graphics commands are emitted with quiet response mode enabled so success
 acknowledgements do not leak into trace output. The application still validates

@@ -66,6 +66,10 @@ pub trait SceneLayer {
         "anonymous"
     }
 
+    fn layer_names(&self) -> Vec<&'static str> {
+        vec![self.name()]
+    }
+
     fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>);
 }
 
@@ -95,39 +99,52 @@ impl LayeredScene {
     }
 
     pub fn layer_names(&self) -> Vec<&'static str> {
-        self.layers.iter().map(|layer| layer.name()).collect()
+        self.layers
+            .iter()
+            .flat_map(|layer| layer.layer_names())
+            .collect()
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct DeepWaterLayer;
+const ENVIRONMENT_REFRESH_TICKS: u64 = 3;
 
-impl SceneLayer for DeepWaterLayer {
+#[derive(Clone, Debug, PartialEq)]
+struct EnvironmentLayer {
+    cache: Canvas,
+    surface_light: SurfaceLightCache,
+    refresh_tick: Option<u64>,
+}
+
+impl EnvironmentLayer {
+    fn new(config: TidepoolCanvasConfig) -> Result<Self, CanvasError> {
+        Ok(Self {
+            cache: Canvas::new(config.width, config.height, Rgba::rgb(0, 0, 0))?,
+            surface_light: SurfaceLightCache::default(),
+            refresh_tick: None,
+        })
+    }
+}
+
+impl SceneLayer for EnvironmentLayer {
     fn name(&self) -> &'static str {
-        "deep_water"
+        "environment"
+    }
+
+    fn layer_names(&self) -> Vec<&'static str> {
+        vec![
+            "deep_water",
+            "surface_light",
+            "reef_growth",
+            "current_bands",
+        ]
     }
 
     fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
-        draw_deep_water(frame.tick(), frame.activity(), canvas);
+        draw_environment(frame.tick(), frame.activity(), canvas, self);
     }
 }
 
 const SURFACE_LIGHT_REFRESH_TICKS: u64 = 3;
-
-#[derive(Clone, Debug, Default, PartialEq)]
-struct SurfaceLightLayer {
-    cache: SurfaceLightCache,
-}
-
-impl SceneLayer for SurfaceLightLayer {
-    fn name(&self) -> &'static str {
-        "surface_light"
-    }
-
-    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
-        draw_surface_light(frame.tick(), frame.activity(), canvas, &mut self.cache);
-    }
-}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct SurfaceLightCache {
@@ -145,32 +162,6 @@ struct SurfaceLightSample {
     r_add: u8,
     g_add: u8,
     b_add: u8,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct ReefGrowthLayer;
-
-impl SceneLayer for ReefGrowthLayer {
-    fn name(&self) -> &'static str {
-        "reef_growth"
-    }
-
-    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
-        draw_reef_growth(frame.tick(), frame.activity(), canvas);
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct CurrentBandsLayer;
-
-impl SceneLayer for CurrentBandsLayer {
-    fn name(&self) -> &'static str {
-        "current_bands"
-    }
-
-    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
-        draw_current_bands(frame.tick(), frame.activity(), canvas);
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -217,10 +208,7 @@ fn tidepool_layers(config: TidepoolCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
     // state so the afterglow follows the actual lifeform positions.
     let lifeforms = Rc::new(RefCell::new(LifeformField::new(14, config)));
     vec![
-        Box::new(DeepWaterLayer),
-        Box::new(SurfaceLightLayer::default()),
-        Box::new(ReefGrowthLayer),
-        Box::new(CurrentBandsLayer),
+        Box::new(EnvironmentLayer::new(config).expect("validated non-zero tidepool canvas")),
         Box::new(DriftMotesLayer),
         Box::new(ReefPolypsLayer),
         Box::new(LifeformTrailLayer::new(lifeforms.clone())),
@@ -439,6 +427,38 @@ impl SceneLayer for LifeformSeedLayer {
         field.update(frame.tick(), frame.activity());
         field.render_seeds(canvas);
     }
+}
+
+fn draw_environment(
+    tick: u64,
+    activity: &SceneActivity,
+    canvas: &mut Canvas,
+    layer: &mut EnvironmentLayer,
+) {
+    let refresh_tick = tick / ENVIRONMENT_REFRESH_TICKS * ENVIRONMENT_REFRESH_TICKS;
+
+    if layer.cache.width() != canvas.width() || layer.cache.height() != canvas.height() {
+        layer.cache = Canvas::new(canvas.width(), canvas.height(), Rgba::rgb(0, 0, 0))
+            .expect("render target canvas has non-zero dimensions");
+        layer.surface_light = SurfaceLightCache::default();
+        layer.refresh_tick = None;
+    }
+
+    if layer.refresh_tick != Some(refresh_tick) {
+        draw_deep_water(refresh_tick, activity, &mut layer.cache);
+        draw_surface_light(
+            refresh_tick,
+            activity,
+            &mut layer.cache,
+            &mut layer.surface_light,
+        );
+        draw_reef_growth(refresh_tick, activity, &mut layer.cache);
+        draw_current_bands(refresh_tick, activity, &mut layer.cache);
+        layer.cache.clear_dirty();
+        layer.refresh_tick = Some(refresh_tick);
+    }
+
+    canvas.pixels_mut().copy_from_slice(layer.cache.pixels());
 }
 
 fn draw_deep_water(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
@@ -1038,18 +1058,43 @@ mod tests {
     fn surface_light_reuses_cached_field_between_refresh_ticks() {
         let activity = SceneActivity::from_core_loads(vec![0.45]).with_network_flow(0.35, 0.0);
         let fill = Rgba::rgb(8, 24, 56);
-        let mut layer = SurfaceLightLayer::default();
+        let mut cache = SurfaceLightCache::default();
 
         let mut first = Canvas::new(32, 18, fill).expect("valid canvas");
-        layer.render(&mut first, SceneFrame::new(0, &activity));
+        draw_surface_light(0, &activity, &mut first, &mut cache);
         let first_pixels = first.pixels().to_vec();
 
         let mut same_refresh_window = Canvas::new(32, 18, fill).expect("valid canvas");
-        layer.render(&mut same_refresh_window, SceneFrame::new(1, &activity));
+        draw_surface_light(1, &activity, &mut same_refresh_window, &mut cache);
 
         assert_eq!(same_refresh_window.pixels(), first_pixels.as_slice());
 
         let mut next_refresh_window = Canvas::new(32, 18, fill).expect("valid canvas");
+        draw_surface_light(3, &activity, &mut next_refresh_window, &mut cache);
+
+        assert_ne!(next_refresh_window.pixels(), first_pixels.as_slice());
+    }
+
+    #[test]
+    fn environment_layer_reuses_cached_background_between_refresh_ticks() {
+        let activity = SceneActivity::from_core_loads(vec![0.45])
+            .with_memory_pressure(0.55)
+            .with_network_flow(0.35, 0.0);
+        let mut layer =
+            EnvironmentLayer::new(TidepoolCanvasConfig::new(32, 18)).expect("valid layer");
+
+        let mut first = Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
+        layer.render(&mut first, SceneFrame::new(0, &activity));
+        let first_pixels = first.pixels().to_vec();
+
+        let mut same_refresh_window =
+            Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
+        layer.render(&mut same_refresh_window, SceneFrame::new(1, &activity));
+
+        assert_eq!(same_refresh_window.pixels(), first_pixels.as_slice());
+
+        let mut next_refresh_window =
+            Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
         layer.render(&mut next_refresh_window, SceneFrame::new(3, &activity));
 
         assert_ne!(next_refresh_window.pixels(), first_pixels.as_slice());
