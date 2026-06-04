@@ -27,8 +27,11 @@ impl Default for RuntimeConfig {
             target_fps: 30,
             metrics_sample_interval: Duration::from_millis(500),
             resize_debounce: Duration::from_millis(50),
-            image_columns: 30,
-            image_rows: 10,
+            // Keep the graphics viewport fixed and bounded for predictable
+            // terminal bandwidth, but large enough that the tidepool reads as
+            // a scene instead of a small preview tile.
+            image_columns: 42,
+            image_rows: 14,
             // First-pass layout uses a conservative default until terminal
             // pixel-size probing is added during the terminal support review.
             cell_size: CellSize::new(8, 16),
