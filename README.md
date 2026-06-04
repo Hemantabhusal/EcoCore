@@ -21,7 +21,7 @@ The project currently contains:
 - Deadline-based frame pacing that preserves the 30 FPS target cadence and skips missed frame slots after overruns.
 - A temporary layered probe scene with background, activity pulse, lifeform trail, lifeform seed, and flow tint layers.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
-- Trace diagnostics for development and verification, including structured `graphics.frame` snapshots with measured FPS, encode time, frame time, placement, image ids, and protocol bytes.
+- Trace diagnostics for development and verification, including structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, encode time, frame time, placement, image ids, and protocol bytes.
 
 The current Kitty spike is intentionally simple: it proves canvas-to-terminal image output before final art systems are built.
 

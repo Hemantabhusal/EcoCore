@@ -93,6 +93,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     let mut resize_debouncer = ResizeDebouncer::new(config.resize_debounce);
     let mut measurement_window_started_at = Instant::now();
     let mut measurement_window_frames = 0_u64;
+    let mut measurement_window_skipped_deadlines = 0_u64;
+    let mut measurement_window_interrupted = false;
     traces.record(TraceEvent::new(
         "frame",
         format!("targeting {} fps", config.target_fps),
@@ -175,6 +177,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     next_frame_at = Instant::now() + frame_duration;
                     measurement_window_started_at = Instant::now();
                     measurement_window_frames = 0;
+                    measurement_window_skipped_deadlines = 0;
+                    measurement_window_interrupted = true;
                 }
                 ResizeDecision::Suspend { actual, minimum } => {
                     suspend_for_unsupported_resize(
@@ -187,6 +191,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     output_suspended = true;
                     measurement_window_started_at = Instant::now();
                     measurement_window_frames = 0;
+                    measurement_window_skipped_deadlines = 0;
+                    measurement_window_interrupted = true;
                 }
             }
             continue;
@@ -220,6 +226,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                             frame_bytes: frame.bytes.len(),
                             average_frame_bytes: renderer_stats.average_frame_bytes(),
                             total_protocol_bytes: renderer_stats.total_protocol_bytes(),
+                            skipped_deadlines: measurement_window_skipped_deadlines,
+                            interrupted: measurement_window_interrupted,
                             encode_time,
                             frame_time,
                             frames_in_window: measurement_window_frames,
@@ -229,11 +237,16 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     );
                     measurement_window_started_at = Instant::now();
                     measurement_window_frames = 0;
+                    measurement_window_skipped_deadlines = 0;
+                    measurement_window_interrupted = false;
                 }
             }
 
             tick = tick.wrapping_add(1);
-            next_frame_at = advance_frame_deadline(next_frame_at, frame_duration, Instant::now());
+            let deadline_advance =
+                advance_frame_deadline(next_frame_at, frame_duration, Instant::now());
+            measurement_window_skipped_deadlines += deadline_advance.skipped_deadlines;
+            next_frame_at = deadline_advance.next_deadline;
             continue;
         }
 

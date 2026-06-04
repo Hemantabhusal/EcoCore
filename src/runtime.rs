@@ -41,21 +41,35 @@ pub fn target_frame_duration(target_fps: u16) -> Duration {
     Duration::from_nanos(1_000_000_000 / fps)
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FrameDeadlineAdvance {
+    pub next_deadline: Instant,
+    pub skipped_deadlines: u64,
+}
+
 pub fn advance_frame_deadline(
     previous_deadline: Instant,
     frame_duration: Duration,
     now: Instant,
-) -> Instant {
+) -> FrameDeadlineAdvance {
     if frame_duration.is_zero() {
-        return now;
+        return FrameDeadlineAdvance {
+            next_deadline: now,
+            skipped_deadlines: 0,
+        };
     }
 
     let mut next_deadline = previous_deadline + frame_duration;
+    let mut skipped_deadlines = 0;
     while next_deadline <= now {
         next_deadline += frame_duration;
+        skipped_deadlines += 1;
     }
 
-    next_deadline
+    FrameDeadlineAdvance {
+        next_deadline,
+        skipped_deadlines,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

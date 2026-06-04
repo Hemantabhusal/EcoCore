@@ -118,6 +118,8 @@ fn graphics_frame_trace_formats_measurement_snapshot_for_terminal_runs() {
         frame_bytes: 173_152,
         average_frame_bytes: 172_900,
         total_protocol_bytes: 5_187_000,
+        skipped_deadlines: 2,
+        interrupted: true,
         encode_time: Duration::from_micros(2_400),
         frame_time: Duration::from_micros(3_100),
         frames_in_window: 30,
@@ -129,7 +131,7 @@ fn graphics_frame_trace_formats_measurement_snapshot_for_terminal_runs() {
     assert_eq!(event.target, "graphics.frame");
     assert_eq!(
         event.message,
-        "tick 30: 240x135 canvas, 30x10 cells at 46,16, 30.0 fps, image 2, deleted 1, 173152 bytes sent, avg 172900 bytes/frame, 5187000 protocol bytes total, encode 2400us, frame 3100us"
+        "tick 30: 240x135 canvas, 30x10 cells at 46,16, 30.0 fps, image 2, deleted 1, 173152 bytes sent, avg 172900 bytes/frame, 5187000 protocol bytes total, skipped 2 deadlines, interrupted yes, encode 2400us, frame 3100us"
     );
 }
 
@@ -326,10 +328,10 @@ fn frame_deadline_advances_from_previous_deadline_instead_of_frame_finish_time()
     let previous_deadline = start + frame_duration;
     let frame_finished_at = previous_deadline + Duration::from_millis(20);
 
-    let next_deadline =
-        advance_frame_deadline(previous_deadline, frame_duration, frame_finished_at);
+    let advance = advance_frame_deadline(previous_deadline, frame_duration, frame_finished_at);
 
-    assert_eq!(next_deadline, previous_deadline + frame_duration);
+    assert_eq!(advance.next_deadline, previous_deadline + frame_duration);
+    assert_eq!(advance.skipped_deadlines, 0);
 }
 
 #[test]
@@ -339,10 +341,13 @@ fn frame_deadline_skips_missed_deadlines_after_large_overrun() {
     let previous_deadline = start + frame_duration;
     let frame_finished_at = previous_deadline + Duration::from_millis(90);
 
-    let next_deadline =
-        advance_frame_deadline(previous_deadline, frame_duration, frame_finished_at);
+    let advance = advance_frame_deadline(previous_deadline, frame_duration, frame_finished_at);
 
-    assert_eq!(next_deadline, previous_deadline + frame_duration * 3);
+    assert_eq!(
+        advance.next_deadline,
+        previous_deadline + frame_duration * 3
+    );
+    assert_eq!(advance.skipped_deadlines, 2);
 }
 
 #[test]

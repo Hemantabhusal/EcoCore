@@ -68,6 +68,8 @@ pub struct GraphicsFrameTrace {
     pub frame_bytes: usize,
     pub average_frame_bytes: u64,
     pub total_protocol_bytes: u64,
+    pub skipped_deadlines: u64,
+    pub interrupted: bool,
     pub encode_time: Duration,
     pub frame_time: Duration,
     pub frames_in_window: u64,
@@ -81,7 +83,7 @@ impl GraphicsFrameTrace {
 
     fn message(self) -> String {
         format!(
-            "tick {}: {}x{} canvas, {}x{} cells at {},{}, {:.1} fps, image {}, deleted {}, {} bytes sent, avg {} bytes/frame, {} protocol bytes total, encode {}us, frame {}us",
+            "tick {}: {}x{} canvas, {}x{} cells at {},{}, {:.1} fps, image {}, deleted {}, {} bytes sent, avg {} bytes/frame, {} protocol bytes total, skipped {} deadlines, interrupted {}, encode {}us, frame {}us",
             self.tick,
             self.canvas_width,
             self.canvas_height,
@@ -95,6 +97,8 @@ impl GraphicsFrameTrace {
             self.frame_bytes,
             self.average_frame_bytes,
             self.total_protocol_bytes,
+            self.skipped_deadlines,
+            format_interrupted(self.interrupted),
             self.encode_time.as_micros(),
             self.frame_time.as_micros()
         )
@@ -115,4 +119,8 @@ fn format_deleted_image_id(image_id: Option<KittyImageId>) -> String {
         || "none".to_owned(),
         |image_id| image_id.value().to_string(),
     )
+}
+
+fn format_interrupted(interrupted: bool) -> &'static str {
+    if interrupted { "yes" } else { "no" }
 }
