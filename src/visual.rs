@@ -152,6 +152,19 @@ impl SceneLayer for DriftMotesLayer {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ReefPolypsLayer;
+
+impl SceneLayer for ReefPolypsLayer {
+    fn name(&self) -> &'static str {
+        "reef_polyps"
+    }
+
+    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
+        draw_reef_polyps(frame.tick(), frame.activity(), canvas);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct SedimentSparksLayer;
 
 impl SceneLayer for SedimentSparksLayer {
@@ -173,6 +186,7 @@ fn tidepool_layers(config: TidepoolCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
         Box::new(ReefGrowthLayer),
         Box::new(CurrentBandsLayer),
         Box::new(DriftMotesLayer),
+        Box::new(ReefPolypsLayer),
         Box::new(LifeformTrailLayer::new(lifeforms.clone())),
         Box::new(LifeformSeedLayer::new(lifeforms)),
         Box::new(SedimentSparksLayer),
@@ -506,6 +520,49 @@ fn draw_drift_motes(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
     }
 }
 
+fn draw_reef_polyps(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
+    let width = canvas.width().max(1);
+    let height = canvas.height().max(1);
+    let area = u32::from(width) * u32::from(height);
+    let polyp_count = (area / 1_700).clamp(10, 32);
+    let memory_energy = activity.memory_pressure();
+    let cpu_energy = average(activity.core_loads());
+    let lower_band = (u64::from(height) / 4).max(1);
+
+    for index in 0..polyp_count {
+        let seed = u64::from(index)
+            .wrapping_mul(0x85EB_CA6B)
+            .wrapping_add(0xC2B2_AE35);
+        let base_x = (seed.wrapping_mul(41) % u64::from(width)) as f32;
+        let base_y = f32::from(height - 1) - (seed.wrapping_mul(17) % lower_band) as f32;
+        let height_seed = (seed.wrapping_mul(13) % 7) as f32;
+        let stalk_height = 4.0 + height_seed * 0.7 + memory_energy * 4.2;
+        let sway_phase = tick as f32 * (0.035 + cpu_energy * 0.025) + seed as f32 * 0.000_021;
+        let segments = stalk_height.round() as i32;
+
+        for segment in 0..=segments {
+            let progress = segment as f32 / stalk_height.max(1.0);
+            let sway = (sway_phase + progress * 1.9).sin() * progress * (0.6 + cpu_energy * 1.4);
+            let x = base_x + sway;
+            let y = base_y - segment as f32;
+            let energy = (0.22 + memory_energy * 0.38) * (1.0 - progress * 0.35);
+
+            add_reef_polyp_pixel(canvas, x.round() as i32, y.round() as i32, energy);
+        }
+
+        let tip_progress = segments as f32 / stalk_height.max(1.0);
+        let tip_sway =
+            (sway_phase + tip_progress * 1.9).sin() * tip_progress * (0.6 + cpu_energy * 1.4);
+        let tip_x = (base_x + tip_sway).round() as i32;
+        let tip_y = (base_y - segments as f32).round() as i32;
+        if tip_x >= 0 && tip_y >= 0 {
+            let pulse = wave01(sway_phase * 1.8 + height_seed);
+            let energy = 0.26 + memory_energy * 0.34 + cpu_energy * 0.18 + pulse * 0.16;
+            add_polyp_tip_glow(canvas, tip_x as u16, tip_y as u16, energy);
+        }
+    }
+}
+
 fn render_lifeform_seed(canvas: &mut Canvas, seed: &LifeformSeed) {
     let center_x = seed.x.round() as i32;
     let center_y = seed.y.round() as i32;
@@ -731,6 +788,60 @@ fn add_cyan_glow_point(
                 add_channel(current.r, glow * 18.0),
                 add_channel(current.g, glow * 118.0),
                 add_channel(current.b, glow * 142.0),
+            );
+            let _ = canvas.set_pixel(x, y, next);
+        }
+    }
+}
+
+fn add_reef_polyp_pixel(canvas: &mut Canvas, x: i32, y: i32, energy: f32) {
+    if x < 0 || y < 0 {
+        return;
+    }
+
+    let x = x as u16;
+    let y = y as u16;
+    let Some(current) = canvas.pixel(x, y) else {
+        return;
+    };
+
+    let next = Rgba::rgb(
+        add_channel(current.r, energy * 16.0),
+        add_channel(current.g, energy * 92.0),
+        add_channel(current.b, energy * 58.0),
+    );
+    let _ = canvas.set_pixel(x, y, next);
+}
+
+fn add_polyp_tip_glow(canvas: &mut Canvas, center_x: u16, center_y: u16, energy: f32) {
+    let center_x = i32::from(center_x);
+    let center_y = i32::from(center_y);
+
+    for dy in -1..=1 {
+        for dx in -1..=1 {
+            let distance = ((dx * dx + dy * dy) as f32).sqrt();
+            let influence = (1.0 - distance / 1.45).clamp(0.0, 1.0);
+            if influence <= 0.0 {
+                continue;
+            }
+
+            let x = center_x + dx;
+            let y = center_y + dy;
+            if x < 0 || y < 0 {
+                continue;
+            }
+
+            let x = x as u16;
+            let y = y as u16;
+            let Some(current) = canvas.pixel(x, y) else {
+                continue;
+            };
+
+            let glow = energy * influence.powf(1.35);
+            let next = Rgba::rgb(
+                add_channel(current.r, glow * 82.0),
+                add_channel(current.g, glow * 142.0),
+                add_channel(current.b, glow * 78.0),
             );
             let _ = canvas.set_pixel(x, y, next);
         }

@@ -21,7 +21,7 @@ The project currently contains:
 - Reused Kitty encode scratch buffers for RGBA packing and base64 output.
 - Deadline-based frame pacing that preserves the 30 FPS target cadence and skips missed frame slots after overruns.
 - Cell-size-aware tidepool canvas sizing derived from the image cell rectangle and a default cell pixel size.
-- A first intentional bioluminescent tidepool scene with deep water, reef growth, current bands, ambient drift motes, lifeform wakes, directional glow lifeforms, and sediment sparks.
+- A first intentional bioluminescent tidepool scene with deep water, reef growth, current bands, ambient drift motes, anchored reef polyps, lifeform wakes, directional glow lifeforms, and sediment sparks.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
 - Trace diagnostics for development and verification, including `terminal.graphics` environment hints and structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, encode time, frame time, placement, image ids, and protocol bytes.
 
