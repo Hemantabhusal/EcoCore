@@ -20,12 +20,13 @@ The project currently contains:
 - Renderer-side frame byte counters and protocol statistics for performance checks.
 - Reused Kitty encode scratch buffers for RGBA packing and base64 output.
 - Deadline-based frame pacing that preserves the 30 FPS target cadence and skips missed frame slots after overruns.
-- Cell-size-aware probe canvas sizing derived from the image cell rectangle and a default cell pixel size.
-- A temporary layered probe scene with background, activity pulse, lifeform trail, lifeform seed, and flow tint layers.
+- Cell-size-aware tidepool canvas sizing derived from the image cell rectangle and a default cell pixel size.
+- A first intentional bioluminescent tidepool scene with deep water, reef growth, current bands, lifeform wakes, glow lifeforms, and sediment sparks.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
 - Trace diagnostics for development and verification, including `terminal.graphics` environment hints and structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, encode time, frame time, placement, image ids, and protocol bytes.
 
-The current Kitty spike is intentionally simple: it proves canvas-to-terminal image output before final art systems are built.
+The current Kitty path now supports the first intentional art pass while keeping
+the scene procedural, deterministic, and measurable.
 
 ## Run
 
@@ -57,7 +58,15 @@ Trace mode is useful when checking Kitty graphics behavior:
 ECOSYSTEM_TRACE=1 cargo run
 ```
 
-The current default places the image in a 30x10 cell rectangle and derives a 240x160 probe canvas from the default 8x16 cell size assumption. Local trace runs at this size usually sustain about 27-30 FPS outside resize transitions, with roughly 205 KB/frame of protocol output. In `graphics.frame` traces, `skipped ... deadlines` indicates frame slots missed after an overrun, while `interrupted yes` usually means resize or suspend handling affected that measurement window. Re-run trace mode after layout changes because canvas size directly changes Kitty protocol bytes per frame.
+The current default places the image in a 30x10 cell rectangle and derives a
+240x160 tidepool canvas from the default 8x16 cell size assumption. Local trace
+runs at this size usually sustain about 27-30 FPS outside resize transitions,
+with roughly 205 KB/frame of protocol output. In `graphics.frame` traces,
+`skipped ... deadlines` indicates frame slots missed after an overrun, while
+`interrupted yes` usually means resize or suspend handling affected that
+measurement window. Re-run trace mode after layout or visual changes because
+canvas size and protocol command shape directly affect Kitty protocol bytes per
+frame.
 
 Kitty graphics commands are emitted with quiet response mode enabled so success
 acknowledgements do not leak into trace output. The application still validates
@@ -77,7 +86,7 @@ src/canvas.rs       RGB/RGBA pixel canvas and dirty-region tracking
 src/kitty.rs        Kitty graphics protocol command encoding
 src/layout.rs       Terminal image placement calculations
 src/renderer.rs     Stateful Kitty frame presentation
-src/visual.rs       Temporary layered probe scene, lifeform state, and canvas composition
+src/visual.rs       Bioluminescent tidepool scene, lifeform state, and canvas composition
 src/terminal.rs     Terminal session, validation, and control sequences
 src/simulation.rs   Smoothed activity model for future visual systems
 src/metrics/        CPU, memory, network, and disk sampling

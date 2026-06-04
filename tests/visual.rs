@@ -93,13 +93,66 @@ fn probe_scene_exposes_named_internal_composition_layers() {
     assert_eq!(
         scene.layer_names(),
         [
-            "background_field",
-            "activity_pulse",
-            "lifeform_trails",
-            "lifeform_seeds",
-            "flow_tint"
+            "deep_water",
+            "reef_growth",
+            "current_bands",
+            "lifeform_wakes",
+            "glow_lifeforms",
+            "sediment_sparks"
         ]
     );
+}
+
+#[test]
+fn tidepool_scene_renders_non_flat_idle_water() {
+    let mut scene = ProbeScene::new(ProbeCanvasConfig::new(32, 18)).expect("valid probe scene");
+
+    let canvas = scene.render(4, &SceneActivity::default());
+    let top_left = canvas.pixel(0, 0).expect("pixel in bounds");
+    let center = canvas.pixel(16, 9).expect("pixel in bounds");
+    let bottom_right = canvas.pixel(31, 17).expect("pixel in bounds");
+
+    assert_ne!(top_left, center);
+    assert_ne!(center, bottom_right);
+    assert!(center.b > center.r);
+}
+
+#[test]
+fn tidepool_memory_pressure_increases_reef_glow_near_bottom() {
+    let mut calm_scene =
+        ProbeScene::new(ProbeCanvasConfig::new(32, 18)).expect("valid probe scene");
+    let mut pressured_scene =
+        ProbeScene::new(ProbeCanvasConfig::new(32, 18)).expect("valid probe scene");
+
+    let calm = calm_scene
+        .render(10, &SceneActivity::default().with_memory_pressure(0.05))
+        .pixels()
+        .to_vec();
+    let pressured = pressured_scene
+        .render(10, &SceneActivity::default().with_memory_pressure(0.95))
+        .pixels()
+        .to_vec();
+
+    assert!(bottom_green_energy(&pressured, 32, 18) > bottom_green_energy(&calm, 32, 18));
+}
+
+#[test]
+fn tidepool_disk_activity_adds_bright_sediment_sparks() {
+    let mut calm_scene =
+        ProbeScene::new(ProbeCanvasConfig::new(32, 18)).expect("valid probe scene");
+    let mut active_scene =
+        ProbeScene::new(ProbeCanvasConfig::new(32, 18)).expect("valid probe scene");
+
+    let calm = calm_scene
+        .render(18, &SceneActivity::default())
+        .pixels()
+        .to_vec();
+    let active = active_scene
+        .render(18, &SceneActivity::default().with_disk_activity(0.0, 1.0))
+        .pixels()
+        .to_vec();
+
+    assert!(bright_pixel_count(&active) > bright_pixel_count(&calm));
 }
 
 #[test]
@@ -217,4 +270,16 @@ fn layered_scene_composes_layers_in_order_and_reuses_canvas_storage() {
     assert_eq!(second.pixels().as_ptr(), first_ptr);
     assert_eq!(second.pixel(0, 0), Some(Rgba::rgb(40, 210, 160)));
     assert_eq!(second.dirty_region(), None);
+}
+
+fn bottom_green_energy(pixels: &[Rgba], width: usize, height: usize) -> u32 {
+    let start = width * (height * 2 / 3);
+    pixels[start..].iter().map(|pixel| u32::from(pixel.g)).sum()
+}
+
+fn bright_pixel_count(pixels: &[Rgba]) -> usize {
+    pixels
+        .iter()
+        .filter(|pixel| u16::from(pixel.r) + u16::from(pixel.g) + u16::from(pixel.b) > 430)
+        .count()
 }
