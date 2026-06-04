@@ -96,6 +96,7 @@ fn probe_scene_exposes_named_internal_composition_layers() {
             "deep_water",
             "reef_growth",
             "current_bands",
+            "drift_motes",
             "lifeform_wakes",
             "glow_lifeforms",
             "sediment_sparks"

@@ -21,7 +21,7 @@ The project currently contains:
 - Reused Kitty encode scratch buffers for RGBA packing and base64 output.
 - Deadline-based frame pacing that preserves the 30 FPS target cadence and skips missed frame slots after overruns.
 - Cell-size-aware tidepool canvas sizing derived from the image cell rectangle and a default cell pixel size.
-- A first intentional bioluminescent tidepool scene with deep water, reef growth, current bands, lifeform wakes, directional glow lifeforms, and sediment sparks.
+- A first intentional bioluminescent tidepool scene with deep water, reef growth, current bands, ambient drift motes, lifeform wakes, directional glow lifeforms, and sediment sparks.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
 - Trace diagnostics for development and verification, including `terminal.graphics` environment hints and structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, encode time, frame time, placement, image ids, and protocol bytes.
 
@@ -68,6 +68,11 @@ slots missed after an overrun, while `interrupted yes` usually means resize or
 suspend handling affected that measurement window. Re-run trace mode after
 layout or visual changes because canvas size and protocol command shape directly
 affect Kitty protocol bytes per frame.
+
+Phase 3E art work should currently improve the scene inside this measured
+render envelope before raising canvas resolution. The direct 336x224 test showed
+that terminal graphics throughput, not local drawing, is the practical limit in
+the current full-frame path.
 
 Kitty graphics commands are emitted with quiet response mode enabled so success
 acknowledgements do not leak into trace output. The application still validates

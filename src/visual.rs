@@ -139,6 +139,19 @@ impl SceneLayer for CurrentBandsLayer {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct DriftMotesLayer;
+
+impl SceneLayer for DriftMotesLayer {
+    fn name(&self) -> &'static str {
+        "drift_motes"
+    }
+
+    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
+        draw_drift_motes(frame.tick(), frame.activity(), canvas);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct SedimentSparksLayer;
 
 impl SceneLayer for SedimentSparksLayer {
@@ -159,6 +172,7 @@ fn tidepool_layers(config: TidepoolCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
         Box::new(DeepWaterLayer),
         Box::new(ReefGrowthLayer),
         Box::new(CurrentBandsLayer),
+        Box::new(DriftMotesLayer),
         Box::new(LifeformTrailLayer::new(lifeforms.clone())),
         Box::new(LifeformSeedLayer::new(lifeforms)),
         Box::new(SedimentSparksLayer),
@@ -459,6 +473,39 @@ fn draw_current_bands(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) 
     }
 }
 
+fn draw_drift_motes(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
+    let width = canvas.width().max(1);
+    let height = canvas.height().max(1);
+    let area = u32::from(width) * u32::from(height);
+    let mote_count = (area / 1_200).clamp(10, 40);
+    let download = activity.network_download();
+    let upload = activity.network_upload();
+    let flow = download.max(upload);
+    let direction = if upload > download { -1.0 } else { 1.0 };
+    let travel = tick as f32 * (0.09 + flow * 0.24) * direction;
+    let water_top = f32::from(height) * 0.12;
+    let water_span = f32::from(height) * 0.58;
+
+    // Motes are intentionally sparse entity-like marks, not a fourth full-frame
+    // scan, so the layer adds motion without changing the terminal bandwidth.
+    for index in 0..mote_count {
+        let seed = u64::from(index)
+            .wrapping_mul(0x9E37_79B9)
+            .wrapping_add(0xA511_E9B3);
+        let phase = seed as f32 * 0.000_031 + tick as f32 * 0.035;
+        let base_x = (seed.wrapping_mul(47) % u64::from(width)) as f32;
+        let base_y = water_top
+            + (seed.wrapping_mul(29) % u64::from(height)) as f32 / f32::from(height) * water_span;
+        let lane = (index % 5) as f32;
+        let x = wrap(base_x + travel * (0.45 + lane * 0.09), f32::from(width));
+        let y = (base_y + phase.sin() * (1.2 + flow * 2.4)).clamp(0.0, f32::from(height - 1));
+        let pulse = wave01(phase * 1.7 + lane);
+        let energy = 0.18 + pulse * 0.24 + flow * 0.22;
+
+        add_cyan_glow_point(canvas, x.round() as u16, y.round() as u16, 1, energy);
+    }
+}
+
 fn render_lifeform_seed(canvas: &mut Canvas, seed: &LifeformSeed) {
     let center_x = seed.x.round() as i32;
     let center_y = seed.y.round() as i32;
@@ -643,6 +690,47 @@ fn add_glow_point(canvas: &mut Canvas, center_x: u16, center_y: u16, radius: i32
                 add_channel(current.r, glow * 190.0),
                 add_channel(current.g, glow * 126.0),
                 add_channel(current.b, glow * 42.0),
+            );
+            let _ = canvas.set_pixel(x, y, next);
+        }
+    }
+}
+
+fn add_cyan_glow_point(
+    canvas: &mut Canvas,
+    center_x: u16,
+    center_y: u16,
+    radius: i32,
+    energy: f32,
+) {
+    let center_x = i32::from(center_x);
+    let center_y = i32::from(center_y);
+
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let distance = ((dx * dx + dy * dy) as f32).sqrt();
+            let influence = (1.0 - distance / (radius as f32 + 0.35)).clamp(0.0, 1.0);
+            if influence <= 0.0 {
+                continue;
+            }
+
+            let x = center_x + dx;
+            let y = center_y + dy;
+            if x < 0 || y < 0 {
+                continue;
+            }
+
+            let x = x as u16;
+            let y = y as u16;
+            let Some(current) = canvas.pixel(x, y) else {
+                continue;
+            };
+
+            let glow = energy * influence.powf(1.45);
+            let next = Rgba::rgb(
+                add_channel(current.r, glow * 18.0),
+                add_channel(current.g, glow * 118.0),
+                add_channel(current.b, glow * 142.0),
             );
             let _ = canvas.set_pixel(x, y, next);
         }
