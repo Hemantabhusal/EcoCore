@@ -113,6 +113,19 @@ impl SceneLayer for DeepWaterLayer {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct SurfaceLightLayer;
+
+impl SceneLayer for SurfaceLightLayer {
+    fn name(&self) -> &'static str {
+        "surface_light"
+    }
+
+    fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
+        draw_surface_light(frame.tick(), frame.activity(), canvas);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct ReefGrowthLayer;
 
 impl SceneLayer for ReefGrowthLayer {
@@ -183,6 +196,7 @@ fn tidepool_layers(config: TidepoolCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
     let lifeforms = Rc::new(RefCell::new(LifeformField::new(14, config)));
     vec![
         Box::new(DeepWaterLayer),
+        Box::new(SurfaceLightLayer),
         Box::new(ReefGrowthLayer),
         Box::new(CurrentBandsLayer),
         Box::new(DriftMotesLayer),
@@ -430,6 +444,42 @@ fn draw_deep_water(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
 
         *pixel = Rgba::rgb(r, g, b);
     }
+}
+
+fn draw_surface_light(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
+    let cpu_energy = average(activity.core_loads());
+    let flow_energy = activity.network_download().max(activity.network_upload());
+    let width = canvas.width();
+    let height = canvas.height();
+    let drift = tick as f32 * (0.012 + flow_energy * 0.028);
+
+    // This pass intentionally shapes the whole water volume. It is the one
+    // Phase 3E art layer that spends full-canvas work to make the scene feel
+    // deeper instead of adding more isolated glowing marks.
+    for (index, pixel) in canvas.pixels_mut().iter_mut().enumerate() {
+        let x = (index % usize::from(width)) as u16;
+        let y = (index / usize::from(width)) as u16;
+        let fx = f32::from(x) / f32::from(width.max(1));
+        let fy = f32::from(y) / f32::from(height.max(1));
+        let center_x = (1.0 - ((fx - 0.5).abs() * 1.65)).clamp(0.0, 1.0);
+        let center_y = (1.0 - ((fy - 0.42).abs() * 1.05)).clamp(0.0, 1.0);
+        let focus = (center_x * center_y).clamp(0.0, 1.0);
+        let surface = (1.0 - fy * 1.7).clamp(0.0, 1.0);
+        let top_glow = surface * surface;
+        let shaft_a = wave01(fx * 7.2 + fy * 4.4 + drift);
+        let shaft_b = wave01(fx * 15.0 - fy * 8.5 - drift * 1.8);
+        let shaft = (shaft_a * 0.7 + shaft_b * 0.3).powf(2.4) * (1.0 - fy).clamp(0.0, 1.0);
+        let shimmer = wave01(fx * 48.0 + drift * 8.0) * top_glow;
+        let shade = 0.76 + focus * 0.18 + top_glow * 0.12;
+
+        pixel.r = scale_channel(f32::from(pixel.r) * shade + shaft * 10.0 + shimmer * 8.0);
+        pixel.g = scale_channel(f32::from(pixel.g) * shade + shaft * 34.0 + shimmer * 28.0);
+        pixel.b = scale_channel(
+            f32::from(pixel.b) * (shade + top_glow * 0.04) + shaft * 48.0 + shimmer * 34.0,
+        );
+    }
+
+    draw_surface_glints(tick, cpu_energy.max(flow_energy), canvas);
 }
 
 fn draw_reef_growth(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
@@ -845,6 +895,50 @@ fn add_polyp_tip_glow(canvas: &mut Canvas, center_x: u16, center_y: u16, energy:
             );
             let _ = canvas.set_pixel(x, y, next);
         }
+    }
+}
+
+fn draw_surface_glints(tick: u64, energy: f32, canvas: &mut Canvas) {
+    let width = canvas.width().max(1);
+    let height = canvas.height().max(1);
+    let glint_count = (6.0 + energy * 10.0).round() as u16;
+    let upper_band = (height / 7).max(1);
+
+    for index in 0..glint_count {
+        let seed = u64::from(index)
+            .wrapping_mul(0x27D4_EB2D)
+            .wrapping_add(tick / 3);
+        let x = (seed.wrapping_mul(59) % u64::from(width)) as u16;
+        let y = (seed.wrapping_mul(23) % u64::from(upper_band)) as u16;
+        let pulse = wave01(tick as f32 * 0.11 + index as f32 * 1.7);
+        add_surface_glint(canvas, x, y, 0.22 + pulse * 0.24 + energy * 0.16);
+    }
+}
+
+fn add_surface_glint(canvas: &mut Canvas, center_x: u16, center_y: u16, energy: f32) {
+    let center_x = i32::from(center_x);
+    let center_y = i32::from(center_y);
+
+    for dx in -2..=2 {
+        let x = center_x + dx;
+        if x < 0 || center_y < 0 {
+            continue;
+        }
+
+        let x = x as u16;
+        let y = center_y as u16;
+        let Some(current) = canvas.pixel(x, y) else {
+            continue;
+        };
+
+        let influence = (1.0 - (dx.abs() as f32 / 2.4)).clamp(0.0, 1.0);
+        let glow = energy * influence.powf(1.2);
+        let next = Rgba::rgb(
+            add_channel(current.r, glow * 60.0),
+            add_channel(current.g, glow * 128.0),
+            add_channel(current.b, glow * 148.0),
+        );
+        let _ = canvas.set_pixel(x, y, next);
     }
 }
 

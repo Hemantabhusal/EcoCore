@@ -94,6 +94,7 @@ fn probe_scene_exposes_named_internal_composition_layers() {
         scene.layer_names(),
         [
             "deep_water",
+            "surface_light",
             "reef_growth",
             "current_bands",
             "drift_motes",
