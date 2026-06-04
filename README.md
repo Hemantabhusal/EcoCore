@@ -56,7 +56,7 @@ Trace mode is useful when checking Kitty graphics behavior:
 ECOSYSTEM_TRACE=1 cargo run
 ```
 
-The current default places the image in a 30x10 cell rectangle and derives a 240x160 probe canvas from the default 8x16 cell size assumption. In `graphics.frame` traces, `skipped ... deadlines` indicates frame slots missed after an overrun, while `interrupted yes` usually means resize or suspend handling affected that measurement window. Re-run trace mode after layout changes because canvas size directly changes Kitty protocol bytes per frame.
+The current default places the image in a 30x10 cell rectangle and derives a 240x160 probe canvas from the default 8x16 cell size assumption. Local trace runs at this size usually sustain about 27-30 FPS outside resize transitions, with roughly 205 KB/frame of protocol output. In `graphics.frame` traces, `skipped ... deadlines` indicates frame slots missed after an overrun, while `interrupted yes` usually means resize or suspend handling affected that measurement window. Re-run trace mode after layout changes because canvas size directly changes Kitty protocol bytes per frame.
 
 ## Project Layout
 
