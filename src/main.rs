@@ -10,6 +10,7 @@ use ecosystem::{
     diagnostics::{GraphicsFrameTrace, TraceCollector, TraceEvent},
     input::{EngineAction, key_event_to_action},
     kitty::KittyImageId,
+    layout::{GraphicsLayout, graphics_layout},
     metrics::cpu::{CpuSampler, CpuSamplerStatus},
     metrics::disk::{DiskSampler, DiskSamplerStatus},
     metrics::memory::MemorySampler,
@@ -49,17 +50,12 @@ fn main() -> ExitCode {
 fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error>> {
     let config = RuntimeConfig::default();
     let mut size = current_terminal_size()?;
-    let startup = prepare_startup(
+    prepare_startup(
         StartupEnvironment::new(io::stdout().is_terminal(), size),
         traces,
     )?;
-    traces.record(TraceEvent::new(
-        "graphics",
-        format!(
-            "pixel canvas runtime prepared for {}x{} terminal",
-            startup.terminal_size.width, startup.terminal_size.height
-        ),
-    ));
+    let mut graphics_layout = runtime_graphics_layout(config, size);
+    traces.record(graphics_layout_trace_event(size, graphics_layout));
 
     let stdout = io::stdout();
     let mut session = TerminalSession::start(stdout.lock(), TerminalSessionOptions::default())?;
@@ -69,8 +65,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
         image_rows: config.image_rows,
     });
     let mut visual_scene = ProbeScene::new(ProbeCanvasConfig::new(
-        config.canvas_width,
-        config.canvas_height,
+        graphics_layout.canvas_width,
+        graphics_layout.canvas_height,
     ))?;
     traces.record(TraceEvent::new(
         "input",
@@ -172,7 +168,18 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
             match decision {
                 ResizeDecision::Redraw { size: new_size } => {
                     size = new_size;
+                    let new_graphics_layout = runtime_graphics_layout(config, size);
+                    if new_graphics_layout.canvas_width != graphics_layout.canvas_width
+                        || new_graphics_layout.canvas_height != graphics_layout.canvas_height
+                    {
+                        visual_scene = ProbeScene::new(ProbeCanvasConfig::new(
+                            new_graphics_layout.canvas_width,
+                            new_graphics_layout.canvas_height,
+                        ))?;
+                    }
+                    graphics_layout = new_graphics_layout;
                     redraw_after_resize(&mut session, &mut renderer, size, traces)?;
+                    traces.record(graphics_layout_trace_event(size, graphics_layout));
                     output_suspended = false;
                     next_frame_at = Instant::now() + frame_duration;
                     measurement_window_started_at = Instant::now();
@@ -305,6 +312,32 @@ fn redraw_after_resize<W: Write>(
     ));
 
     Ok(())
+}
+
+fn runtime_graphics_layout(config: RuntimeConfig, size: TerminalSize) -> GraphicsLayout {
+    graphics_layout(
+        size,
+        config.image_columns,
+        config.image_rows,
+        config.cell_size,
+    )
+}
+
+fn graphics_layout_trace_event(size: TerminalSize, layout: GraphicsLayout) -> TraceEvent {
+    TraceEvent::new(
+        "graphics.layout",
+        format!(
+            "{}x{} terminal -> {}x{} cells at {},{}, {}x{} canvas",
+            size.width,
+            size.height,
+            layout.placement.columns,
+            layout.placement.rows,
+            layout.placement.cursor_column,
+            layout.placement.cursor_row,
+            layout.canvas_width,
+            layout.canvas_height
+        ),
+    )
 }
 
 fn suspend_for_unsupported_resize<W: Write>(

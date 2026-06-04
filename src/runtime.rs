@@ -1,16 +1,18 @@
 use std::time::{Duration, Instant};
 
-use crate::terminal::{TerminalSize, TerminalValidationError, validate_terminal_environment};
+use crate::{
+    layout::CellSize,
+    terminal::{TerminalSize, TerminalValidationError, validate_terminal_environment},
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RuntimeConfig {
     pub target_fps: u16,
     pub metrics_sample_interval: Duration,
     pub resize_debounce: Duration,
-    pub canvas_width: u16,
-    pub canvas_height: u16,
     pub image_columns: u16,
     pub image_rows: u16,
+    pub cell_size: CellSize,
 }
 
 impl RuntimeConfig {
@@ -25,13 +27,11 @@ impl Default for RuntimeConfig {
             target_fps: 30,
             metrics_sample_interval: Duration::from_millis(500),
             resize_debounce: Duration::from_millis(50),
-            // Temporary Phase 3 probe sizing. Canvas pixels and terminal cell
-            // placement are intentionally fixed until cell-size-aware layout
-            // is measured in the Kitty backend.
-            canvas_width: 240,
-            canvas_height: 135,
             image_columns: 30,
             image_rows: 10,
+            // First-pass layout uses a conservative default until terminal
+            // pixel-size probing is added during the terminal support review.
+            cell_size: CellSize::new(8, 16),
         }
     }
 }

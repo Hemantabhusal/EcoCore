@@ -7,7 +7,7 @@ use ecosystem::{
     diagnostics::{GraphicsFrameTrace, TraceCollector, TraceEvent},
     input::{EngineAction, key_event_to_action},
     kitty::KittyImageId,
-    layout::ImagePlacement,
+    layout::{CellSize, ImagePlacement},
     runtime::{
         ResizeDebouncer, ResizeDecision, RuntimeConfig, advance_frame_deadline, resize_decision,
         target_frame_duration,
@@ -315,10 +315,9 @@ fn runtime_default_targets_thirty_frames_per_second() {
     assert_eq!(config.frame_duration(), target_frame_duration(30));
     assert_eq!(config.metrics_sample_interval.as_millis(), 500);
     assert_eq!(config.resize_debounce.as_millis(), 50);
-    assert_eq!(config.canvas_width, 240);
-    assert_eq!(config.canvas_height, 135);
     assert_eq!(config.image_columns, 30);
     assert_eq!(config.image_rows, 10);
+    assert_eq!(config.cell_size, CellSize::new(8, 16));
 }
 
 #[test]

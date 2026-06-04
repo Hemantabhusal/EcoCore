@@ -1,34 +1,42 @@
 use ecosystem::{
-    layout::{ImagePlacement, centered_image_placement},
+    layout::{CellSize, GraphicsLayout, ImagePlacement, graphics_layout},
     terminal::{TerminalSize, move_cursor_to},
 };
 
 #[test]
 fn centered_image_placement_uses_one_based_cursor_coordinates() {
-    let placement = centered_image_placement(TerminalSize::new(120, 40), 30, 10);
+    let layout = graphics_layout(TerminalSize::new(120, 40), 30, 10, CellSize::new(8, 16));
 
     assert_eq!(
-        placement,
-        ImagePlacement {
-            cursor_column: 46,
-            cursor_row: 16,
-            columns: 30,
-            rows: 10
+        layout,
+        GraphicsLayout {
+            placement: ImagePlacement {
+                cursor_column: 46,
+                cursor_row: 16,
+                columns: 30,
+                rows: 10
+            },
+            canvas_width: 240,
+            canvas_height: 160
         }
     );
 }
 
 #[test]
 fn centered_image_placement_clamps_to_small_terminals() {
-    let placement = centered_image_placement(TerminalSize::new(20, 8), 30, 10);
+    let layout = graphics_layout(TerminalSize::new(20, 8), 30, 10, CellSize::new(8, 16));
 
     assert_eq!(
-        placement,
-        ImagePlacement {
-            cursor_column: 1,
-            cursor_row: 1,
-            columns: 20,
-            rows: 8
+        layout,
+        GraphicsLayout {
+            placement: ImagePlacement {
+                cursor_column: 1,
+                cursor_row: 1,
+                columns: 20,
+                rows: 8
+            },
+            canvas_width: 160,
+            canvas_height: 128
         }
     );
 }
