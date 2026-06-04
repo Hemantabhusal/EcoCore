@@ -367,7 +367,7 @@ fn runtime_default_targets_thirty_frames_per_second() {
     assert_eq!(config.resize_debounce.as_millis(), 50);
     assert_eq!(config.image_columns, 42);
     assert_eq!(config.image_rows, 14);
-    assert_eq!(config.cell_size, CellSize::new(8, 16));
+    assert_eq!(config.cell_size, CellSize::new(6, 11));
 }
 
 #[test]

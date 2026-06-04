@@ -58,16 +58,16 @@ Trace mode is useful when checking Kitty graphics behavior:
 ECOSYSTEM_TRACE=1 cargo run
 ```
 
-The current default places the image in a bounded 42x14 cell rectangle and
-derives a 336x224 tidepool canvas from the default 8x16 cell size assumption.
-This deliberately keeps the graphics workload fixed instead of filling the
-entire terminal, while giving the first art pass more visual room than the
-previous 30x10 / 240x160 baseline. The larger canvas is expected to send roughly
-402 KB/frame before local measurement. In `graphics.frame` traces, `skipped ...
-deadlines` indicates frame slots missed after an overrun, while `interrupted
-yes` usually means resize or suspend handling affected that measurement window.
-Re-run trace mode after layout or visual changes because canvas size and
-protocol command shape directly affect Kitty protocol bytes per frame.
+The current default displays the image in a bounded 42x14 cell rectangle, but
+renders a capped 252x154 tidepool canvas that Kitty scales into that rectangle.
+This deliberately keeps the graphics workload near the previous 30x10 / 240x160
+byte budget while giving the first art pass more visual room on screen. The
+larger displayed viewport is expected to send roughly 207 KB/frame before local
+measurement. In `graphics.frame` traces, `skipped ... deadlines` indicates frame
+slots missed after an overrun, while `interrupted yes` usually means resize or
+suspend handling affected that measurement window. Re-run trace mode after
+layout or visual changes because canvas size and protocol command shape directly
+affect Kitty protocol bytes per frame.
 
 Kitty graphics commands are emitted with quiet response mode enabled so success
 acknowledgements do not leak into trace output. The application still validates

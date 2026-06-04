@@ -23,6 +23,25 @@ fn centered_image_placement_uses_one_based_cursor_coordinates() {
 }
 
 #[test]
+fn larger_displayed_tidepool_can_use_capped_render_density() {
+    let layout = graphics_layout(TerminalSize::new(120, 40), 42, 14, CellSize::new(6, 11));
+
+    assert_eq!(
+        layout,
+        GraphicsLayout {
+            placement: ImagePlacement {
+                cursor_column: 40,
+                cursor_row: 14,
+                columns: 42,
+                rows: 14
+            },
+            canvas_width: 252,
+            canvas_height: 154
+        }
+    );
+}
+
+#[test]
 fn centered_image_placement_clamps_to_small_terminals() {
     let layout = graphics_layout(TerminalSize::new(20, 8), 30, 10, CellSize::new(8, 16));
 

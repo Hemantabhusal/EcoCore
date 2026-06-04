@@ -32,9 +32,11 @@ impl Default for RuntimeConfig {
             // a scene instead of a small preview tile.
             image_columns: 42,
             image_rows: 14,
-            // First-pass layout uses a conservative default until terminal
-            // pixel-size probing is added during the terminal support review.
-            cell_size: CellSize::new(8, 16),
+            // Kitty scales the image to the requested cell rectangle. Keep the
+            // displayed tidepool larger than the old 30x10 viewport, but cap
+            // render density so full-frame protocol bytes stay near the
+            // measured 240x160 baseline.
+            cell_size: CellSize::new(6, 11),
         }
     }
 }
