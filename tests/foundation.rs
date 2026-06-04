@@ -14,8 +14,9 @@ use ecosystem::{
     },
     simulation::{ActivitySmoother, SceneActivity},
     terminal::{
-        ColorCapability, TerminalColorEnvironment, TerminalSession, TerminalSessionOptions,
-        TerminalSize, detect_color_capability, validate_terminal_environment,
+        ColorCapability, TerminalColorEnvironment, TerminalGraphicsEnvironment, TerminalSession,
+        TerminalSessionOptions, TerminalSize, detect_color_capability,
+        summarize_graphics_environment, validate_terminal_environment,
     },
 };
 
@@ -197,6 +198,34 @@ fn terminal_color_detection_treats_missing_truecolor_markers_as_limited() {
 }
 
 #[test]
+fn terminal_graphics_environment_summary_reports_kitty_hints_without_claiming_support() {
+    let environment =
+        TerminalGraphicsEnvironment::new(Some("xterm-kitty"), Some("truecolor"), true, true);
+
+    let summary = summarize_graphics_environment(&environment);
+
+    assert_eq!(
+        summary,
+        "target kitty protocol; TERM=xterm-kitty; COLORTERM=truecolor; kitty env hints yes; support still requires successful graphics frames"
+    );
+}
+
+#[test]
+fn terminal_graphics_environment_summary_sanitizes_control_characters() {
+    let environment = TerminalGraphicsEnvironment::new(
+        Some("xterm-kitty\u{1b}[31m"),
+        Some("truecolor\n"),
+        false,
+        false,
+    );
+
+    let summary = summarize_graphics_environment(&environment);
+
+    assert!(summary.contains("TERM=xterm-kitty?"));
+    assert!(summary.contains("COLORTERM=truecolor?"));
+}
+
+#[test]
 fn app_startup_returns_user_facing_startup_error_for_non_tty() {
     let mut traces = TraceCollector::enabled();
     let error = prepare_startup(
@@ -247,6 +276,27 @@ fn app_startup_records_limited_color_warning_without_failing() {
             .iter()
             .any(|event| { event.target == "terminal.color" && event.message.contains("limited") })
     );
+}
+
+#[test]
+fn app_startup_records_terminal_graphics_environment_hints() {
+    let mut traces = TraceCollector::enabled();
+    prepare_startup(
+        StartupEnvironment::new(true, TerminalSize::new(80, 24)).with_graphics_environment(
+            TerminalGraphicsEnvironment::new(Some("xterm-kitty"), Some("truecolor"), true, false),
+        ),
+        &mut traces,
+    )
+    .expect("valid startup records graphics environment");
+
+    assert!(traces.snapshot().iter().any(|event| {
+        event.target == "terminal.graphics"
+            && event.message.contains("TERM=xterm-kitty")
+            && event.message.contains("kitty env hints yes")
+            && event
+                .message
+                .contains("support still requires successful graphics frames")
+    }));
 }
 
 #[test]

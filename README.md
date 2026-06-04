@@ -22,7 +22,7 @@ The project currently contains:
 - Cell-size-aware probe canvas sizing derived from the image cell rectangle and a default cell pixel size.
 - A temporary layered probe scene with background, activity pulse, lifeform trail, lifeform seed, and flow tint layers.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
-- Trace diagnostics for development and verification, including structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, encode time, frame time, placement, image ids, and protocol bytes.
+- Trace diagnostics for development and verification, including `terminal.graphics` environment hints and structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, encode time, frame time, placement, image ids, and protocol bytes.
 
 The current Kitty spike is intentionally simple: it proves canvas-to-terminal image output before final art systems are built.
 
@@ -57,6 +57,12 @@ ECOSYSTEM_TRACE=1 cargo run
 ```
 
 The current default places the image in a 30x10 cell rectangle and derives a 240x160 probe canvas from the default 8x16 cell size assumption. Local trace runs at this size usually sustain about 27-30 FPS outside resize transitions, with roughly 205 KB/frame of protocol output. In `graphics.frame` traces, `skipped ... deadlines` indicates frame slots missed after an overrun, while `interrupted yes` usually means resize or suspend handling affected that measurement window. Re-run trace mode after layout changes because canvas size directly changes Kitty protocol bytes per frame.
+
+The `terminal.graphics` trace records sanitized coarse startup hints such as
+`TERM`, `COLORTERM`, and whether Kitty-specific environment markers are present.
+These hints help compare local terminal runs, but they are not treated as proof
+of graphics protocol support. Successful frame output remains the real
+validation.
 
 ## Project Layout
 

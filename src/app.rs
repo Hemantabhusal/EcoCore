@@ -3,8 +3,9 @@ use std::{error::Error, fmt};
 use crate::{
     diagnostics::{TraceCollector, TraceEvent},
     terminal::{
-        ColorCapability, TerminalColorEnvironment, TerminalSize, TerminalValidationError,
-        detect_color_capability, validate_terminal_environment,
+        ColorCapability, TerminalColorEnvironment, TerminalGraphicsEnvironment, TerminalSize,
+        TerminalValidationError, detect_color_capability, summarize_graphics_environment,
+        validate_terminal_environment,
     },
 };
 
@@ -13,6 +14,7 @@ pub struct StartupEnvironment {
     pub stdout_is_terminal: bool,
     pub terminal_size: TerminalSize,
     pub color_environment: TerminalColorEnvironment,
+    pub graphics_environment: TerminalGraphicsEnvironment,
 }
 
 impl StartupEnvironment {
@@ -21,11 +23,20 @@ impl StartupEnvironment {
             stdout_is_terminal,
             terminal_size,
             color_environment: TerminalColorEnvironment::default(),
+            graphics_environment: TerminalGraphicsEnvironment::default(),
         }
     }
 
     pub fn with_color_environment(mut self, color_environment: TerminalColorEnvironment) -> Self {
         self.color_environment = color_environment;
+        self
+    }
+
+    pub fn with_graphics_environment(
+        mut self,
+        graphics_environment: TerminalGraphicsEnvironment,
+    ) -> Self {
+        self.graphics_environment = graphics_environment;
         self
     }
 }
@@ -71,6 +82,7 @@ pub fn prepare_startup(
 
     validate_terminal_environment(environment.stdout_is_terminal, environment.terminal_size)?;
     let color_capability = record_color_capability(&environment, traces);
+    record_graphics_environment(&environment, traces);
 
     traces.record(TraceEvent::new(
         "startup",
@@ -99,4 +111,11 @@ fn record_color_capability(
 
     traces.record(TraceEvent::new("terminal.color", message));
     capability
+}
+
+fn record_graphics_environment(environment: &StartupEnvironment, traces: &mut TraceCollector) {
+    traces.record(TraceEvent::new(
+        "terminal.graphics",
+        summarize_graphics_environment(&environment.graphics_environment),
+    ));
 }

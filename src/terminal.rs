@@ -57,6 +57,86 @@ impl Default for TerminalColorEnvironment {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TerminalGraphicsEnvironment {
+    pub term: Option<String>,
+    pub colorterm: Option<String>,
+    pub has_kitty_window_id: bool,
+    pub has_kitty_listen_on: bool,
+}
+
+impl TerminalGraphicsEnvironment {
+    pub fn new(
+        term: Option<&str>,
+        colorterm: Option<&str>,
+        has_kitty_window_id: bool,
+        has_kitty_listen_on: bool,
+    ) -> Self {
+        Self {
+            term: term.map(str::to_owned),
+            colorterm: colorterm.map(str::to_owned),
+            has_kitty_window_id,
+            has_kitty_listen_on,
+        }
+    }
+
+    pub fn from_process_env() -> Self {
+        Self {
+            term: std::env::var("TERM").ok(),
+            colorterm: std::env::var("COLORTERM").ok(),
+            has_kitty_window_id: std::env::var_os("KITTY_WINDOW_ID").is_some(),
+            has_kitty_listen_on: std::env::var_os("KITTY_LISTEN_ON").is_some(),
+        }
+    }
+}
+
+impl Default for TerminalGraphicsEnvironment {
+    fn default() -> Self {
+        Self::from_process_env()
+    }
+}
+
+pub fn summarize_graphics_environment(environment: &TerminalGraphicsEnvironment) -> String {
+    format!(
+        "target kitty protocol; TERM={}; COLORTERM={}; kitty env hints {}; support still requires successful graphics frames",
+        sanitize_env_value(environment.term.as_deref()),
+        sanitize_env_value(environment.colorterm.as_deref()),
+        if has_kitty_hint(environment) {
+            "yes"
+        } else {
+            "no"
+        }
+    )
+}
+
+fn sanitize_env_value(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "unset".to_owned();
+    };
+
+    // Trace output is written back to the terminal, so environment values must
+    // not be allowed to smuggle control sequences into diagnostics.
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                '?'
+            } else {
+                character
+            }
+        })
+        .collect()
+}
+
+fn has_kitty_hint(environment: &TerminalGraphicsEnvironment) -> bool {
+    environment
+        .term
+        .as_deref()
+        .is_some_and(|term| term.to_ascii_lowercase().contains("kitty"))
+        || environment.has_kitty_window_id
+        || environment.has_kitty_listen_on
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ColorCapability {
     Truecolor,
