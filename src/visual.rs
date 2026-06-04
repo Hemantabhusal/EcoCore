@@ -112,8 +112,12 @@ impl SceneLayer for DeepWaterLayer {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-struct SurfaceLightLayer;
+const SURFACE_LIGHT_REFRESH_TICKS: u64 = 3;
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct SurfaceLightLayer {
+    cache: SurfaceLightCache,
+}
 
 impl SceneLayer for SurfaceLightLayer {
     fn name(&self) -> &'static str {
@@ -121,8 +125,26 @@ impl SceneLayer for SurfaceLightLayer {
     }
 
     fn render(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) {
-        draw_surface_light(frame.tick(), frame.activity(), canvas);
+        draw_surface_light(frame.tick(), frame.activity(), canvas, &mut self.cache);
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+struct SurfaceLightCache {
+    width: u16,
+    height: u16,
+    refresh_tick: Option<u64>,
+    samples: Vec<SurfaceLightSample>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct SurfaceLightSample {
+    r_mul: u16,
+    g_mul: u16,
+    b_mul: u16,
+    r_add: u8,
+    g_add: u8,
+    b_add: u8,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -196,7 +218,7 @@ fn tidepool_layers(config: TidepoolCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
     let lifeforms = Rc::new(RefCell::new(LifeformField::new(14, config)));
     vec![
         Box::new(DeepWaterLayer),
-        Box::new(SurfaceLightLayer),
+        Box::new(SurfaceLightLayer::default()),
         Box::new(ReefGrowthLayer),
         Box::new(CurrentBandsLayer),
         Box::new(DriftMotesLayer),
@@ -446,17 +468,52 @@ fn draw_deep_water(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
     }
 }
 
-fn draw_surface_light(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
+fn draw_surface_light(
+    tick: u64,
+    activity: &SceneActivity,
+    canvas: &mut Canvas,
+    cache: &mut SurfaceLightCache,
+) {
     let cpu_energy = average(activity.core_loads());
     let flow_energy = activity.network_download().max(activity.network_upload());
     let width = canvas.width();
     let height = canvas.height();
+    let refresh_tick = tick / SURFACE_LIGHT_REFRESH_TICKS * SURFACE_LIGHT_REFRESH_TICKS;
+
+    if cache.width != width || cache.height != height || cache.refresh_tick != Some(refresh_tick) {
+        refresh_surface_light_cache(refresh_tick, flow_energy, width, height, cache);
+    }
+
+    for (pixel, sample) in canvas.pixels_mut().iter_mut().zip(cache.samples.iter()) {
+        pixel.r = apply_light_sample_channel(pixel.r, sample.r_mul, sample.r_add);
+        pixel.g = apply_light_sample_channel(pixel.g, sample.g_mul, sample.g_add);
+        pixel.b = apply_light_sample_channel(pixel.b, sample.b_mul, sample.b_add);
+    }
+
+    draw_surface_glints(refresh_tick, cpu_energy.max(flow_energy), canvas);
+}
+
+fn refresh_surface_light_cache(
+    tick: u64,
+    flow_energy: f32,
+    width: u16,
+    height: u16,
+    cache: &mut SurfaceLightCache,
+) {
+    cache.width = width;
+    cache.height = height;
+    cache.refresh_tick = Some(tick);
+    cache.samples.resize(
+        usize::from(width) * usize::from(height),
+        SurfaceLightSample::default(),
+    );
+
     let drift = tick as f32 * (0.012 + flow_energy * 0.028);
 
-    // This pass intentionally shapes the whole water volume. It is the one
-    // Phase 3E art layer that spends full-canvas work to make the scene feel
-    // deeper instead of adding more isolated glowing marks.
-    for (index, pixel) in canvas.pixels_mut().iter_mut().enumerate() {
+    // Expensive shaft/shimmer math is cached at 10 Hz. Applying the cached
+    // coefficients still touches the canvas every frame, but avoids per-frame
+    // trigonometry and powf work.
+    for (index, sample) in cache.samples.iter_mut().enumerate() {
         let x = (index % usize::from(width)) as u16;
         let y = (index / usize::from(width)) as u16;
         let fx = f32::from(x) / f32::from(width.max(1));
@@ -472,14 +529,15 @@ fn draw_surface_light(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) 
         let shimmer = wave01(fx * 48.0 + drift * 8.0) * top_glow;
         let shade = 0.76 + focus * 0.18 + top_glow * 0.12;
 
-        pixel.r = scale_channel(f32::from(pixel.r) * shade + shaft * 10.0 + shimmer * 8.0);
-        pixel.g = scale_channel(f32::from(pixel.g) * shade + shaft * 34.0 + shimmer * 28.0);
-        pixel.b = scale_channel(
-            f32::from(pixel.b) * (shade + top_glow * 0.04) + shaft * 48.0 + shimmer * 34.0,
-        );
+        *sample = SurfaceLightSample {
+            r_mul: fixed_light_mul(shade),
+            g_mul: fixed_light_mul(shade),
+            b_mul: fixed_light_mul(shade + top_glow * 0.04),
+            r_add: scale_channel(shaft * 10.0 + shimmer * 8.0),
+            g_add: scale_channel(shaft * 34.0 + shimmer * 28.0),
+            b_add: scale_channel(shaft * 48.0 + shimmer * 34.0),
+        };
     }
-
-    draw_surface_glints(tick, cpu_energy.max(flow_energy), canvas);
 }
 
 fn draw_reef_growth(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
@@ -950,6 +1008,16 @@ fn scale_channel(value: f32) -> u8 {
     value.clamp(0.0, 255.0).round() as u8
 }
 
+fn fixed_light_mul(value: f32) -> u16 {
+    (value.clamp(0.0, 1.25) * 256.0).round() as u16
+}
+
+fn apply_light_sample_channel(base: u8, multiplier: u16, addition: u8) -> u8 {
+    let multiplied = (u32::from(base) * u32::from(multiplier) + 128) / 256;
+    let value = multiplied + u32::from(addition);
+    value.min(255) as u8
+}
+
 fn add_channel(base: u8, value: f32) -> u8 {
     scale_channel(f32::from(base) + value)
 }
@@ -960,4 +1028,30 @@ fn wrap(value: f32, limit: f32) -> f32 {
     }
 
     value.rem_euclid(limit)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn surface_light_reuses_cached_field_between_refresh_ticks() {
+        let activity = SceneActivity::from_core_loads(vec![0.45]).with_network_flow(0.35, 0.0);
+        let fill = Rgba::rgb(8, 24, 56);
+        let mut layer = SurfaceLightLayer::default();
+
+        let mut first = Canvas::new(32, 18, fill).expect("valid canvas");
+        layer.render(&mut first, SceneFrame::new(0, &activity));
+        let first_pixels = first.pixels().to_vec();
+
+        let mut same_refresh_window = Canvas::new(32, 18, fill).expect("valid canvas");
+        layer.render(&mut same_refresh_window, SceneFrame::new(1, &activity));
+
+        assert_eq!(same_refresh_window.pixels(), first_pixels.as_slice());
+
+        let mut next_refresh_window = Canvas::new(32, 18, fill).expect("valid canvas");
+        layer.render(&mut next_refresh_window, SceneFrame::new(3, &activity));
+
+        assert_ne!(next_refresh_window.pixels(), first_pixels.as_slice());
+    }
 }
