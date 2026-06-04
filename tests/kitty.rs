@@ -18,7 +18,7 @@ fn kitty_encoder_transmits_canvas_as_rgba_graphics_command() {
 
     assert_eq!(
         command,
-        "\u{1b}_Ga=T,f=32,i=7,s=2,v=1,m=0;AQIDBAUGBwg=\u{1b}\\"
+        "\u{1b}_Ga=T,q=2,f=32,i=7,s=2,v=1,m=0;AQIDBAUGBwg=\u{1b}\\"
     );
 }
 
@@ -31,7 +31,7 @@ fn kitty_encoder_chunks_large_payloads_with_continuation_flags() {
         .encode_canvas(&canvas);
     let command = String::from_utf8(bytes).expect("kitty commands are utf8");
 
-    assert!(command.starts_with("\u{1b}_Ga=T,f=32,i=9,s=3,v=1,m=1;"));
+    assert!(command.starts_with("\u{1b}_Ga=T,q=2,f=32,i=9,s=3,v=1,m=1;"));
     assert!(command.contains("\u{1b}\\\u{1b}_Gm=0;"));
     assert!(command.ends_with("\u{1b}\\"));
 }
@@ -45,7 +45,20 @@ fn kitty_encoder_can_place_canvas_in_a_terminal_cell_rectangle() {
         .encode_canvas(&canvas);
     let command = String::from_utf8(bytes).expect("kitty commands are utf8");
 
-    assert!(command.starts_with("\u{1b}_Ga=T,f=32,i=11,s=2,v=1,c=30,r=10,C=1,m=0;"));
+    assert!(command.starts_with("\u{1b}_Ga=T,q=2,f=32,i=11,s=2,v=1,c=30,r=10,C=1,m=0;"));
+}
+
+#[test]
+fn kitty_encoder_requests_quiet_protocol_responses() {
+    let canvas = Canvas::new(2, 1, Rgba::rgb(255, 0, 0)).expect("valid canvas");
+
+    let frame = KittyGraphicsEncoder::new(KittyImageId::new(13)).encode_canvas(&canvas);
+    let cleanup = KittyGraphicsEncoder::new(KittyImageId::new(13)).encode_delete();
+    let frame_command = String::from_utf8(frame).expect("kitty commands are utf8");
+    let cleanup_command = String::from_utf8(cleanup).expect("kitty commands are utf8");
+
+    assert!(frame_command.starts_with("\u{1b}_Ga=T,q=2,f=32,i=13"));
+    assert_eq!(cleanup_command, "\u{1b}_Ga=d,q=2,d=i,i=13;\u{1b}\\");
 }
 
 #[test]
@@ -69,5 +82,5 @@ fn kitty_encoder_deletes_image_by_id_for_cleanup() {
     let bytes = KittyGraphicsEncoder::new(KittyImageId::new(42)).encode_delete();
     let command = String::from_utf8(bytes).expect("kitty commands are utf8");
 
-    assert_eq!(command, "\u{1b}_Ga=d,d=i,i=42;\u{1b}\\");
+    assert_eq!(command, "\u{1b}_Ga=d,q=2,d=i,i=42;\u{1b}\\");
 }

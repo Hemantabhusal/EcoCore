@@ -20,7 +20,7 @@ fn kitty_renderer_places_first_frame_without_deleting_any_image() {
     assert_eq!(frame.image_id, KittyImageId::new(100));
     assert_eq!(frame.deleted_image_id, None);
     assert_eq!(frame.placement.cursor_column, 46);
-    assert!(command.starts_with("\u{1b}[16;46H\u{1b}_Ga=T,f=32,i=100"));
+    assert!(command.starts_with("\u{1b}[16;46H\u{1b}_Ga=T,q=2,f=32,i=100"));
     assert!(!command.contains("a=d"));
 }
 
@@ -57,8 +57,8 @@ fn kitty_renderer_cleanup_deletes_all_managed_buffers_and_resets_state() {
     let cleanup = String::from_utf8(renderer.reset()).expect("cleanup output is utf8");
     let frame = renderer.render_frame(TerminalSize::new(120, 40), &canvas);
 
-    assert!(cleanup.contains("a=d,d=i,i=100"));
-    assert!(cleanup.contains("a=d,d=i,i=101"));
+    assert!(cleanup.contains("a=d,q=2,d=i,i=100"));
+    assert!(cleanup.contains("a=d,q=2,d=i,i=101"));
     assert_eq!(frame.image_id, KittyImageId::new(100));
     assert_eq!(frame.deleted_image_id, None);
 }

@@ -16,6 +16,7 @@ The project currently contains:
 - RGB/RGBA canvas storage with dirty-region tracking.
 - A first Kitty graphics protocol renderer that streams a generated RGBA canvas with explicit placement.
 - Double-buffered Kitty image ids to reduce visible delete/recreate flicker.
+- Quiet Kitty graphics commands to suppress success acknowledgements during trace runs.
 - Renderer-side frame byte counters and protocol statistics for performance checks.
 - Reused Kitty encode scratch buffers for RGBA packing and base64 output.
 - Deadline-based frame pacing that preserves the 30 FPS target cadence and skips missed frame slots after overruns.
@@ -57,6 +58,11 @@ ECOSYSTEM_TRACE=1 cargo run
 ```
 
 The current default places the image in a 30x10 cell rectangle and derives a 240x160 probe canvas from the default 8x16 cell size assumption. Local trace runs at this size usually sustain about 27-30 FPS outside resize transitions, with roughly 205 KB/frame of protocol output. In `graphics.frame` traces, `skipped ... deadlines` indicates frame slots missed after an overrun, while `interrupted yes` usually means resize or suspend handling affected that measurement window. Re-run trace mode after layout changes because canvas size directly changes Kitty protocol bytes per frame.
+
+Kitty graphics commands are emitted with quiet response mode enabled so success
+acknowledgements do not leak into trace output. The application still validates
+graphics support through successful visible frame output rather than protocol
+environment hints alone.
 
 The `terminal.graphics` trace records sanitized coarse startup hints such as
 `TERM`, `COLORTERM`, and whether Kitty-specific environment markers are present.

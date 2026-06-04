@@ -5,6 +5,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use crate::canvas::Canvas;
 
 const DEFAULT_CHUNK_SIZE: usize = 4096;
+const QUIET_RESPONSE_MODE: u8 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct KittyImageId(u32);
@@ -71,9 +72,12 @@ impl KittyGraphicsEncoder {
         for (index, chunk) in scratch.payload.as_bytes().chunks(chunk_size).enumerate() {
             let more_chunks = usize::from(index + 1 < chunk_count);
             if index == 0 {
+                // The renderer does not currently consume Kitty response ACKs.
+                // Quiet mode prevents success responses from leaking into the
+                // terminal input stream and contaminating trace output.
                 write!(
                     bytes,
-                    "\x1b_Ga=T,f=32,i={},s={},v={}",
+                    "\x1b_Ga=T,q={QUIET_RESPONSE_MODE},f=32,i={},s={},v={}",
                     self.image_id.value(),
                     canvas.width(),
                     canvas.height()
@@ -101,8 +105,12 @@ impl KittyGraphicsEncoder {
     }
 
     pub fn append_delete(&self, bytes: &mut Vec<u8>) {
-        write!(bytes, "\x1b_Ga=d,d=i,i={};\x1b\\", self.image_id.value())
-            .expect("writing to an in-memory byte buffer cannot fail");
+        write!(
+            bytes,
+            "\x1b_Ga=d,q={QUIET_RESPONSE_MODE},d=i,i={};\x1b\\",
+            self.image_id.value()
+        )
+        .expect("writing to an in-memory byte buffer cannot fail");
     }
 }
 
