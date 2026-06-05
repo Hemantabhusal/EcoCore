@@ -24,7 +24,7 @@ The project currently contains:
 - Cell-size-aware tidepool canvas sizing derived from the image cell rectangle and a default cell pixel size.
 - A first intentional bioluminescent tidepool scene with deep water, surface lighting, reef growth, current bands, ambient drift motes, anchored reef polyps, lifeform wakes, directional glow lifeforms, and sediment sparks.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
-- Trace diagnostics for development and verification, including `terminal.graphics` environment hints and structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, encode time, frame time, placement, image ids, full/partial frame bytes, and protocol bytes.
+- Trace diagnostics for development and verification, including `terminal.graphics` environment hints and structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, render/encode/write/frame timing, placement, image ids, full/partial frame bytes, and protocol bytes.
 
 The current Kitty path now supports the first intentional art pass while keeping
 the scene procedural, deterministic, and measurable.
@@ -71,10 +71,10 @@ layout or visual changes because canvas size and protocol command shape directly
 affect Kitty protocol bytes per frame.
 
 Trace timing is split into `render`, `encode`, `write`, and total `frame`
-duration, plus window averages for each. The single-frame timing printed at
-ticks 30, 60, 90, and so on can coincide with an environment refresh, so the
-`avg ...` timing fields are the better signal for deciding whether the next
-optimization belongs in visual rendering, Kitty encoding, or terminal output.
+duration, plus window averages for each. Single-frame timing can still catch a
+heavier environment refresh, so the `avg ...` timing fields are the better
+signal for deciding whether the next optimization belongs in visual rendering,
+Kitty encoding, or terminal output.
 
 Phase 3E art work should currently improve the scene inside this measured
 render envelope before raising canvas resolution. The direct 336x224 test showed
@@ -84,10 +84,10 @@ the current full-frame path.
 The surface-light layer is the first intentional full-canvas art polish pass
 after the baseline. It should be checked with trace mode for frame-time impact,
 even though the encoded payload should remain tied to the fixed canvas size.
-The expensive environment composite is cached and refreshed every three ticks
-so deep water, surface shimmer, reef growth, and current bands run at about 10
-Hz while sparse lifeforms, wakes, motes, polyps, and sparks still render at the
-30 FPS target.
+The expensive environment composite is cached and refreshed every eight ticks
+so deep water, surface shimmer, reef growth, and current bands run below the
+display frame rate while sparse lifeforms, wakes, motes, polyps, and sparks
+still render at the 30 FPS target.
 
 Small quiet-frame dirty regions keep the same Kitty image id alive and transmit
 cropped frame-data updates. Near-full dirty regions, environment refreshes, and

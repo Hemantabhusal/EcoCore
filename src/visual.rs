@@ -137,7 +137,7 @@ impl LayeredScene {
     }
 }
 
-const ENVIRONMENT_REFRESH_TICKS: u64 = 3;
+const ENVIRONMENT_REFRESH_TICKS: u64 = 8;
 
 #[derive(Clone, Debug, PartialEq)]
 struct EnvironmentLayer {
@@ -185,7 +185,7 @@ impl SceneLayer for EnvironmentLayer {
     }
 }
 
-const SURFACE_LIGHT_REFRESH_TICKS: u64 = 3;
+const SURFACE_LIGHT_REFRESH_TICKS: u64 = ENVIRONMENT_REFRESH_TICKS;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 struct SurfaceLightCache {
@@ -572,9 +572,8 @@ fn refresh_surface_light_cache(
 
     let drift = tick as f32 * (0.012 + flow_energy * 0.028);
 
-    // Expensive shaft/shimmer math is cached at 10 Hz. Applying the cached
-    // coefficients still touches the canvas every frame, but avoids per-frame
-    // trigonometry and powf work.
+    // Expensive shaft/shimmer math runs at the environment cadence. Sparse
+    // life layers carry frame-rate motion between these heavier refreshes.
     for (index, sample) in cache.samples.iter_mut().enumerate() {
         let x = (index % usize::from(width)) as u16;
         let y = (index / usize::from(width)) as u16;
@@ -1107,12 +1106,12 @@ mod tests {
         let first_pixels = first.pixels().to_vec();
 
         let mut same_refresh_window = Canvas::new(32, 18, fill).expect("valid canvas");
-        draw_surface_light(1, &activity, &mut same_refresh_window, &mut cache);
+        draw_surface_light(7, &activity, &mut same_refresh_window, &mut cache);
 
         assert_eq!(same_refresh_window.pixels(), first_pixels.as_slice());
 
         let mut next_refresh_window = Canvas::new(32, 18, fill).expect("valid canvas");
-        draw_surface_light(3, &activity, &mut next_refresh_window, &mut cache);
+        draw_surface_light(8, &activity, &mut next_refresh_window, &mut cache);
 
         assert_ne!(next_refresh_window.pixels(), first_pixels.as_slice());
     }
@@ -1131,7 +1130,7 @@ mod tests {
 
         let mut same_refresh_window =
             Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
-        assert!(!layer.render_environment(&mut same_refresh_window, SceneFrame::new(1, &activity)));
+        assert!(!layer.render_environment(&mut same_refresh_window, SceneFrame::new(7, &activity)));
 
         assert!(
             same_refresh_window
@@ -1143,7 +1142,7 @@ mod tests {
 
         let mut next_refresh_window =
             Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
-        assert!(layer.render_environment(&mut next_refresh_window, SceneFrame::new(3, &activity)));
+        assert!(layer.render_environment(&mut next_refresh_window, SceneFrame::new(8, &activity)));
 
         assert_ne!(next_refresh_window.pixels(), first_pixels.as_slice());
     }

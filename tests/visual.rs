@@ -111,6 +111,18 @@ fn probe_scene_keeps_quiet_frame_on_partial_update_path_after_environment_refres
 }
 
 #[test]
+fn probe_scene_keeps_environment_cached_across_short_quiet_window() {
+    let mut scene = ProbeScene::new(ProbeCanvasConfig::new(64, 40)).expect("valid probe scene");
+
+    scene.render(0, &SceneActivity::default());
+    scene.render(1, &SceneActivity::default());
+    scene.render(2, &SceneActivity::default());
+    let canvas = scene.render(3, &SceneActivity::default());
+
+    assert!(!canvas.full_frame_required());
+}
+
+#[test]
 fn probe_scene_exposes_named_internal_composition_layers() {
     let scene = ProbeScene::new(ProbeCanvasConfig::new(16, 9)).expect("valid probe scene");
 
