@@ -1,5 +1,5 @@
 use ecosystem::{
-    canvas::{Canvas, Rgba},
+    canvas::{Canvas, DirtyRegion, Rgba},
     kitty::{KittyEncodeScratch, KittyGraphicsEncoder, KittyImageId, KittyPlacement},
 };
 
@@ -19,6 +19,33 @@ fn kitty_encoder_transmits_canvas_as_rgba_graphics_command() {
     assert_eq!(
         command,
         "\u{1b}_Ga=T,q=2,f=32,i=7,s=2,v=1,m=0;AQIDBAUGBwg=\u{1b}\\"
+    );
+}
+
+#[test]
+fn kitty_encoder_transmits_cropped_frame_region_for_existing_image() {
+    let mut canvas = Canvas::new(2, 1, Rgba::TRANSPARENT).expect("valid canvas");
+    canvas
+        .set_pixel(0, 0, Rgba::new(1, 2, 3, 4))
+        .expect("pixel in bounds");
+    canvas
+        .set_pixel(1, 0, Rgba::new(5, 6, 7, 8))
+        .expect("pixel in bounds");
+
+    let bytes = KittyGraphicsEncoder::new(KittyImageId::new(7)).encode_frame_region(
+        &canvas,
+        DirtyRegion {
+            x: 1,
+            y: 0,
+            width: 1,
+            height: 1,
+        },
+    );
+    let command = String::from_utf8(bytes).expect("kitty commands are utf8");
+
+    assert_eq!(
+        command,
+        "\u{1b}_Ga=f,q=2,f=32,i=7,r=1,x=1,y=0,s=1,v=1,X=1,m=0;BQYHCA==\u{1b}\\"
     );
 }
 

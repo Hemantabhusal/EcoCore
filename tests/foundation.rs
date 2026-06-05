@@ -117,6 +117,8 @@ fn graphics_frame_trace_formats_measurement_snapshot_for_terminal_runs() {
         image_id: KittyImageId::new(2),
         deleted_image_id: Some(KittyImageId::new(1)),
         frame_bytes: 173_152,
+        full_frame_bytes: 173_152,
+        partial_frame_bytes: 31_400,
         average_frame_bytes: 172_900,
         total_protocol_bytes: 5_187_000,
         skipped_deadlines: 2,
@@ -132,7 +134,7 @@ fn graphics_frame_trace_formats_measurement_snapshot_for_terminal_runs() {
     assert_eq!(event.target, "graphics.frame");
     assert_eq!(
         event.message,
-        "tick 30: 240x135 canvas, 30x10 cells at 46,16, 30.0 fps, image 2, deleted 1, 173152 bytes sent, avg 172900 bytes/frame, 5187000 protocol bytes total, skipped 2 deadlines, interrupted yes, encode 2400us, frame 3100us"
+        "tick 30: 240x135 canvas, 30x10 cells at 46,16, 30.0 fps, image 2, deleted 1, 173152 bytes sent, full 173152 bytes, partial 31400 bytes, avg 172900 bytes/frame, 5187000 protocol bytes total, skipped 2 deadlines, interrupted yes, encode 2400us, frame 3100us"
     );
 }
 

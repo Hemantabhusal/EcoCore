@@ -2,7 +2,7 @@ use std::io::Write as _;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
-use crate::canvas::Canvas;
+use crate::canvas::{Canvas, DirtyRegion};
 
 const DEFAULT_CHUNK_SIZE: usize = 4096;
 const QUIET_RESPONSE_MODE: u8 = 2;
@@ -52,6 +52,12 @@ impl KittyGraphicsEncoder {
         bytes
     }
 
+    pub fn encode_frame_region(&self, canvas: &Canvas, region: DirtyRegion) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        self.append_frame_region(canvas, region, &mut bytes);
+        bytes
+    }
+
     pub fn append_canvas(&self, canvas: &Canvas, bytes: &mut Vec<u8>) {
         let mut scratch = KittyEncodeScratch::default();
         self.append_canvas_with_scratch(canvas, bytes, &mut scratch);
@@ -98,6 +104,49 @@ impl KittyGraphicsEncoder {
         }
     }
 
+    pub fn append_frame_region(&self, canvas: &Canvas, region: DirtyRegion, bytes: &mut Vec<u8>) {
+        let mut scratch = KittyEncodeScratch::default();
+        self.append_frame_region_with_scratch(canvas, region, bytes, &mut scratch);
+    }
+
+    pub fn append_frame_region_with_scratch(
+        &self,
+        canvas: &Canvas,
+        region: DirtyRegion,
+        bytes: &mut Vec<u8>,
+        scratch: &mut KittyEncodeScratch,
+    ) {
+        scratch.load_canvas_region(canvas, region);
+        STANDARD.encode_string(&scratch.rgba, &mut scratch.payload);
+        let chunk_size = self.chunk_size.max(1);
+        let chunk_count = scratch.payload.len().div_ceil(chunk_size).max(1);
+        bytes.reserve(scratch.payload.len() + chunk_count * 80);
+
+        for (index, chunk) in scratch.payload.as_bytes().chunks(chunk_size).enumerate() {
+            let more_chunks = usize::from(index + 1 < chunk_count);
+            if index == 0 {
+                // `a=f` edits the root frame of the already displayed image.
+                // This is the protocol path for pixel payload updates; `a=p`
+                // only places image data that has already been transmitted.
+                write!(
+                    bytes,
+                    "\x1b_Ga=f,q={QUIET_RESPONSE_MODE},f=32,i={},r=1,x={},y={},s={},v={},X=1,m={more_chunks};",
+                    self.image_id.value(),
+                    region.x,
+                    region.y,
+                    region.width,
+                    region.height
+                )
+                .expect("writing to an in-memory byte buffer cannot fail");
+            } else {
+                write!(bytes, "\x1b_Gm={more_chunks};")
+                    .expect("writing to an in-memory byte buffer cannot fail");
+            }
+            bytes.extend_from_slice(chunk);
+            bytes.extend_from_slice(b"\x1b\\");
+        }
+    }
+
     pub fn encode_delete(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
         self.append_delete(&mut bytes);
@@ -129,6 +178,25 @@ impl KittyEncodeScratch {
         for pixel in canvas.pixels() {
             self.rgba
                 .extend_from_slice(&[pixel.r, pixel.g, pixel.b, pixel.a]);
+        }
+    }
+
+    fn load_canvas_region(&mut self, canvas: &Canvas, region: DirtyRegion) {
+        self.rgba.clear();
+        self.payload.clear();
+        self.rgba
+            .reserve(usize::from(region.width) * usize::from(region.height) * 4);
+
+        let canvas_width = usize::from(canvas.width());
+        let x = usize::from(region.x);
+        let region_width = usize::from(region.width);
+        for y in region.y..region.y + region.height {
+            let start = usize::from(y) * canvas_width + x;
+            let end = start + region_width;
+            for pixel in &canvas.pixels()[start..end] {
+                self.rgba
+                    .extend_from_slice(&[pixel.r, pixel.g, pixel.b, pixel.a]);
+            }
         }
     }
 

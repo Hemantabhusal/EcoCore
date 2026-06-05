@@ -52,21 +52,21 @@ pub struct DirtyRegion {
 }
 
 impl DirtyRegion {
+    pub const fn full(width: u16, height: u16) -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        }
+    }
+
     const fn single_pixel(x: u16, y: u16) -> Self {
         Self {
             x,
             y,
             width: 1,
             height: 1,
-        }
-    }
-
-    const fn full(width: u16, height: u16) -> Self {
-        Self {
-            x: 0,
-            y: 0,
-            width,
-            height,
         }
     }
 
@@ -83,6 +83,16 @@ impl DirtyRegion {
             height: max_y - min_y + 1,
         }
     }
+
+    fn include_region(self, region: Self) -> Self {
+        let max_x = region.x.saturating_add(region.width.saturating_sub(1));
+        let max_y = region.y.saturating_add(region.height.saturating_sub(1));
+        self.include(region.x, region.y).include(max_x, max_y)
+    }
+
+    pub fn covers(self, width: u16, height: u16) -> bool {
+        self.x == 0 && self.y == 0 && self.width >= width && self.height >= height
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,6 +101,7 @@ pub struct Canvas {
     height: u16,
     pixels: Vec<Rgba>,
     dirty_region: Option<DirtyRegion>,
+    full_frame_required: bool,
 }
 
 impl Canvas {
@@ -105,6 +116,7 @@ impl Canvas {
             height,
             pixels: vec![fill; len],
             dirty_region: None,
+            full_frame_required: false,
         })
     }
 
@@ -122,6 +134,7 @@ impl Canvas {
 
     pub fn pixels_mut(&mut self) -> &mut [Rgba] {
         self.dirty_region = Some(DirtyRegion::full(self.width, self.height));
+        self.full_frame_required = true;
         &mut self.pixels
     }
 
@@ -145,14 +158,59 @@ impl Canvas {
 
         self.pixels.fill(pixel);
         self.dirty_region = Some(DirtyRegion::full(self.width, self.height));
+        self.full_frame_required = true;
+    }
+
+    pub fn copy_region_from(
+        &mut self,
+        source: &Canvas,
+        region: DirtyRegion,
+    ) -> Result<(), CanvasError> {
+        self.validate_region(region)?;
+        source.validate_region(region)?;
+
+        let mut changed = false;
+        let width = usize::from(self.width);
+        let region_width = usize::from(region.width);
+        for y in region.y..region.y + region.height {
+            let start = usize::from(y) * width + usize::from(region.x);
+            let end = start + region_width;
+            if self.pixels[start..end] != source.pixels[start..end] {
+                self.pixels[start..end].copy_from_slice(&source.pixels[start..end]);
+                changed = true;
+            }
+        }
+
+        if changed {
+            self.mark_dirty_region(region);
+        }
+
+        Ok(())
     }
 
     pub const fn dirty_region(&self) -> Option<DirtyRegion> {
         self.dirty_region
     }
 
+    pub const fn full_frame_required(&self) -> bool {
+        self.full_frame_required
+    }
+
     pub fn clear_dirty(&mut self) {
         self.dirty_region = None;
+        self.full_frame_required = false;
+    }
+
+    pub fn mark_dirty_region(&mut self, region: DirtyRegion) {
+        self.dirty_region = Some(match self.dirty_region {
+            Some(current) => current.include_region(region),
+            None => region,
+        });
+    }
+
+    pub fn mark_full_frame_required(&mut self) {
+        self.dirty_region = Some(DirtyRegion::full(self.width, self.height));
+        self.full_frame_required = true;
     }
 
     fn mark_dirty(&mut self, x: u16, y: u16) {
@@ -169,11 +227,29 @@ impl Canvas {
 
         Some(usize::from(y) * usize::from(self.width) + usize::from(x))
     }
+
+    fn validate_region(&self, region: DirtyRegion) -> Result<(), CanvasError> {
+        if region.width == 0 || region.height == 0 {
+            return Err(CanvasError::InvalidRegion { region });
+        }
+        let right = u32::from(region.x) + u32::from(region.width);
+        let bottom = u32::from(region.y) + u32::from(region.height);
+        if region.x >= self.width
+            || region.y >= self.height
+            || right > u32::from(self.width)
+            || bottom > u32::from(self.height)
+        {
+            return Err(CanvasError::InvalidRegion { region });
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CanvasError {
     InvalidSize { width: u16, height: u16 },
+    InvalidRegion { region: DirtyRegion },
     OutOfBounds { x: u16, y: u16 },
 }
 
@@ -182,6 +258,13 @@ impl fmt::Display for CanvasError {
         match self {
             Self::InvalidSize { width, height } => {
                 write!(f, "canvas size must be non-zero, got {width}x{height}")
+            }
+            Self::InvalidRegion { region } => {
+                write!(
+                    f,
+                    "canvas dirty region out of bounds: {},{} {}x{}",
+                    region.x, region.y, region.width, region.height
+                )
             }
             Self::OutOfBounds { x, y } => {
                 write!(f, "canvas coordinate out of bounds: ({x}, {y})")

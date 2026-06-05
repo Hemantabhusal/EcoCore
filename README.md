@@ -15,15 +15,16 @@ The project currently contains:
 - Smoothed activity state for future visual systems.
 - RGB/RGBA canvas storage with dirty-region tracking.
 - A first Kitty graphics protocol renderer that streams a generated RGBA canvas with explicit placement.
-- Double-buffered Kitty image ids to reduce visible delete/recreate flicker.
+- Persistent Kitty image presentation with full-frame replacement on startup,
+  resize, or environment refresh and cropped frame-data updates on quiet frames.
 - Quiet Kitty graphics commands to suppress success acknowledgements during trace runs.
-- Renderer-side frame byte counters and protocol statistics for performance checks.
+- Renderer-side full-frame and partial-frame byte counters for performance checks.
 - Reused Kitty encode scratch buffers for RGBA packing and base64 output.
 - Deadline-based frame pacing that preserves the 30 FPS target cadence and skips missed frame slots after overruns.
 - Cell-size-aware tidepool canvas sizing derived from the image cell rectangle and a default cell pixel size.
 - A first intentional bioluminescent tidepool scene with deep water, surface lighting, reef growth, current bands, ambient drift motes, anchored reef polyps, lifeform wakes, directional glow lifeforms, and sediment sparks.
 - In-place activity smoothing to avoid per-frame activity buffer clones.
-- Trace diagnostics for development and verification, including `terminal.graphics` environment hints and structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, encode time, frame time, placement, image ids, and protocol bytes.
+- Trace diagnostics for development and verification, including `terminal.graphics` environment hints and structured `graphics.frame` snapshots with measured FPS, skipped deadline counts, resize/suspend interruption markers, encode time, frame time, placement, image ids, full/partial frame bytes, and protocol bytes.
 
 The current Kitty path now supports the first intentional art pass while keeping
 the scene procedural, deterministic, and measurable.
@@ -82,6 +83,15 @@ so deep water, surface shimmer, reef growth, and current bands run at about 10
 Hz while sparse lifeforms, wakes, motes, polyps, and sparks still render at the
 30 FPS target.
 
+Quiet frames now keep the same Kitty image id alive and transmit cropped
+frame-data updates for the canvas dirty region instead of deleting/recreating
+images every frame. Environment refreshes and resize-driven placement changes
+still force a full replacement. The current dirty tracker stores one bounding
+rectangle, so if sparse entities span most of the canvas the partial payload may
+still approach a full-frame payload. Trace mode now separates cumulative full
+and partial bytes so this can be measured before adding a more complex
+tile/rect-list dirty tracker.
+
 Kitty graphics commands are emitted with quiet response mode enabled so success
 acknowledgements do not leak into trace output. The application still validates
 graphics support through successful visible frame output rather than protocol
@@ -119,7 +129,8 @@ tests/              Canvas, terminal, runtime, simulation, and metric tests
 - Measure frame time, encode time, bytes sent, FPS, memory, and CPU.
 - Keep the frame pipeline allocation-conscious as scene complexity grows.
 - Keep graphics measurement trace output stable enough to compare manual Kitty runs across visual changes.
-- Defer dirty-region Kitty updates until visual layers stop repainting most of the canvas.
+- Use dirty-region Kitty updates where they are measurable, and move to
+  tile/rect-list tracking only if the current bounding rectangle is too coarse.
 - Defer SIGINT/SIGTERM image cleanup until production hardening adds a signal handling dependency.
 - Prefer measured protocol improvements over guessing about terminal throughput.
 - Prefer deterministic motion over random effects.

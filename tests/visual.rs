@@ -78,12 +78,36 @@ fn probe_scene_reuses_canvas_storage_between_frames() {
 }
 
 #[test]
-fn probe_scene_keeps_rendered_canvas_clean_for_full_frame_presentation() {
+fn probe_scene_marks_first_render_as_full_frame_dirty() {
     let mut scene = ProbeScene::new(ProbeCanvasConfig::new(16, 9)).expect("valid probe scene");
 
     let canvas = scene.render(0, &SceneActivity::default());
 
-    assert_eq!(canvas.dirty_region(), None);
+    assert_eq!(
+        canvas.dirty_region(),
+        Some(ecosystem::canvas::DirtyRegion {
+            x: 0,
+            y: 0,
+            width: 16,
+            height: 9
+        })
+    );
+    assert!(canvas.full_frame_required());
+}
+
+#[test]
+fn probe_scene_keeps_quiet_frame_on_partial_update_path_after_environment_refresh() {
+    let mut scene = ProbeScene::new(ProbeCanvasConfig::new(64, 40)).expect("valid probe scene");
+
+    scene.render(0, &SceneActivity::default());
+    let canvas = scene.render(1, &SceneActivity::default());
+
+    assert!(
+        canvas
+            .dirty_region()
+            .is_some_and(|dirty| dirty.width > 0 && dirty.height > 0)
+    );
+    assert!(!canvas.full_frame_required());
 }
 
 #[test]
@@ -287,7 +311,15 @@ fn layered_scene_composes_layers_in_order_and_reuses_canvas_storage() {
 
     assert_eq!(second.pixels().as_ptr(), first_ptr);
     assert_eq!(second.pixel(0, 0), Some(Rgba::rgb(40, 210, 160)));
-    assert_eq!(second.dirty_region(), None);
+    assert_eq!(
+        second.dirty_region(),
+        Some(ecosystem::canvas::DirtyRegion {
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 3
+        })
+    );
 }
 
 fn bottom_green_energy(pixels: &[Rgba], width: usize, height: usize) -> u32 {

@@ -231,6 +231,8 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                             image_id: frame.image_id,
                             deleted_image_id: frame.deleted_image_id,
                             frame_bytes: frame.bytes.len(),
+                            full_frame_bytes: renderer_stats.full_frame_bytes(),
+                            partial_frame_bytes: renderer_stats.partial_frame_bytes(),
                             average_frame_bytes: renderer_stats.average_frame_bytes(),
                             total_protocol_bytes: renderer_stats.total_protocol_bytes(),
                             skipped_deadlines: measurement_window_skipped_deadlines,

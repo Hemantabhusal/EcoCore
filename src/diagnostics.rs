@@ -66,6 +66,8 @@ pub struct GraphicsFrameTrace {
     pub image_id: KittyImageId,
     pub deleted_image_id: Option<KittyImageId>,
     pub frame_bytes: usize,
+    pub full_frame_bytes: u64,
+    pub partial_frame_bytes: u64,
     pub average_frame_bytes: u64,
     pub total_protocol_bytes: u64,
     pub skipped_deadlines: u64,
@@ -83,7 +85,7 @@ impl GraphicsFrameTrace {
 
     fn message(self) -> String {
         format!(
-            "tick {}: {}x{} canvas, {}x{} cells at {},{}, {:.1} fps, image {}, deleted {}, {} bytes sent, avg {} bytes/frame, {} protocol bytes total, skipped {} deadlines, interrupted {}, encode {}us, frame {}us",
+            "tick {}: {}x{} canvas, {}x{} cells at {},{}, {:.1} fps, image {}, deleted {}, {} bytes sent, full {} bytes, partial {} bytes, avg {} bytes/frame, {} protocol bytes total, skipped {} deadlines, interrupted {}, encode {}us, frame {}us",
             self.tick,
             self.canvas_width,
             self.canvas_height,
@@ -95,6 +97,8 @@ impl GraphicsFrameTrace {
             self.image_id.value(),
             format_deleted_image_id(self.deleted_image_id),
             self.frame_bytes,
+            self.full_frame_bytes,
+            self.partial_frame_bytes,
             self.average_frame_bytes,
             self.total_protocol_bytes,
             self.skipped_deadlines,

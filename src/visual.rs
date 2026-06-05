@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    canvas::{Canvas, CanvasError, Rgba},
+    canvas::{Canvas, CanvasError, DirtyRegion, Rgba},
     simulation::SceneActivity,
 };
 
@@ -20,22 +20,53 @@ impl TidepoolCanvasConfig {
 pub type ProbeCanvasConfig = TidepoolCanvasConfig;
 
 pub struct TidepoolScene {
-    scene: LayeredScene,
+    canvas: Canvas,
+    environment: EnvironmentLayer,
+    sparse_layers: Vec<Box<dyn SceneLayer>>,
+    previous_dynamic_dirty: Option<DirtyRegion>,
 }
 
 impl TidepoolScene {
     pub fn new(config: TidepoolCanvasConfig) -> Result<Self, CanvasError> {
         Ok(Self {
-            scene: LayeredScene::new(config, tidepool_layers(config))?,
+            canvas: Canvas::new(config.width, config.height, Rgba::rgb(0, 0, 0))?,
+            environment: EnvironmentLayer::new(config)?,
+            sparse_layers: tidepool_sparse_layers(config),
+            previous_dynamic_dirty: None,
         })
     }
 
     pub fn render(&mut self, tick: u64, activity: &SceneActivity) -> &Canvas {
-        self.scene.render(tick, activity)
+        let frame = SceneFrame::new(tick, activity);
+        self.canvas.clear_dirty();
+
+        let environment_refreshed = self.environment.render_environment(&mut self.canvas, frame);
+        if !environment_refreshed && let Some(region) = self.previous_dynamic_dirty {
+            self.environment.restore_region(&mut self.canvas, region);
+        }
+
+        for layer in &mut self.sparse_layers {
+            layer.render(&mut self.canvas, frame);
+        }
+
+        self.previous_dynamic_dirty = self.canvas.dirty_region();
+        if environment_refreshed {
+            self.canvas.mark_full_frame_required();
+        }
+
+        &self.canvas
     }
 
     pub fn layer_names(&self) -> Vec<&'static str> {
-        self.scene.layer_names()
+        self.environment
+            .layer_names()
+            .into_iter()
+            .chain(
+                self.sparse_layers
+                    .iter()
+                    .flat_map(|layer| layer.layer_names()),
+            )
+            .collect()
     }
 }
 
@@ -90,11 +121,11 @@ impl LayeredScene {
     }
 
     pub fn render(&mut self, tick: u64, activity: &SceneActivity) -> &Canvas {
+        self.canvas.clear_dirty();
         let frame = SceneFrame::new(tick, activity);
         for layer in &mut self.layers {
             layer.render(&mut self.canvas, frame);
         }
-        self.canvas.clear_dirty();
         &self.canvas
     }
 
@@ -122,6 +153,16 @@ impl EnvironmentLayer {
             surface_light: SurfaceLightCache::default(),
             refresh_tick: None,
         })
+    }
+
+    fn render_environment(&mut self, canvas: &mut Canvas, frame: SceneFrame<'_>) -> bool {
+        draw_environment(frame.tick(), frame.activity(), canvas, self)
+    }
+
+    fn restore_region(&self, canvas: &mut Canvas, region: DirtyRegion) {
+        canvas
+            .copy_region_from(&self.cache, region)
+            .expect("environment cache matches render canvas dimensions");
     }
 }
 
@@ -203,12 +244,11 @@ impl SceneLayer for SedimentSparksLayer {
     }
 }
 
-fn tidepool_layers(config: TidepoolCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
+fn tidepool_sparse_layers(config: TidepoolCanvasConfig) -> Vec<Box<dyn SceneLayer>> {
     // Trails and seeds are separate visual layers, but they must share motion
     // state so the afterglow follows the actual lifeform positions.
     let lifeforms = Rc::new(RefCell::new(LifeformField::new(14, config)));
     vec![
-        Box::new(EnvironmentLayer::new(config).expect("validated non-zero tidepool canvas")),
         Box::new(DriftMotesLayer),
         Box::new(ReefPolypsLayer),
         Box::new(LifeformTrailLayer::new(lifeforms.clone())),
@@ -434,7 +474,7 @@ fn draw_environment(
     activity: &SceneActivity,
     canvas: &mut Canvas,
     layer: &mut EnvironmentLayer,
-) {
+) -> bool {
     let refresh_tick = tick / ENVIRONMENT_REFRESH_TICKS * ENVIRONMENT_REFRESH_TICKS;
 
     if layer.cache.width() != canvas.width() || layer.cache.height() != canvas.height() {
@@ -456,9 +496,11 @@ fn draw_environment(
         draw_current_bands(refresh_tick, activity, &mut layer.cache);
         layer.cache.clear_dirty();
         layer.refresh_tick = Some(refresh_tick);
+        canvas.pixels_mut().copy_from_slice(layer.cache.pixels());
+        return true;
     }
 
-    canvas.pixels_mut().copy_from_slice(layer.cache.pixels());
+    false
 }
 
 fn draw_deep_water(tick: u64, activity: &SceneActivity, canvas: &mut Canvas) {
@@ -1084,18 +1126,24 @@ mod tests {
             EnvironmentLayer::new(TidepoolCanvasConfig::new(32, 18)).expect("valid layer");
 
         let mut first = Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
-        layer.render(&mut first, SceneFrame::new(0, &activity));
+        assert!(layer.render_environment(&mut first, SceneFrame::new(0, &activity)));
         let first_pixels = first.pixels().to_vec();
 
         let mut same_refresh_window =
             Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
-        layer.render(&mut same_refresh_window, SceneFrame::new(1, &activity));
+        assert!(!layer.render_environment(&mut same_refresh_window, SceneFrame::new(1, &activity)));
 
-        assert_eq!(same_refresh_window.pixels(), first_pixels.as_slice());
+        assert!(
+            same_refresh_window
+                .pixels()
+                .iter()
+                .all(|pixel| *pixel == Rgba::rgb(0, 0, 0))
+        );
+        assert_eq!(layer.cache.pixels(), first_pixels.as_slice());
 
         let mut next_refresh_window =
             Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
-        layer.render(&mut next_refresh_window, SceneFrame::new(3, &activity));
+        assert!(layer.render_environment(&mut next_refresh_window, SceneFrame::new(3, &activity)));
 
         assert_ne!(next_refresh_window.pixels(), first_pixels.as_slice());
     }
