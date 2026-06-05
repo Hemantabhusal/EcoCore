@@ -119,7 +119,8 @@ src/canvas.rs       RGB/RGBA pixel canvas and dirty-region tracking
 src/kitty.rs        Kitty graphics protocol command encoding
 src/layout.rs       Terminal image placement calculations
 src/renderer.rs     Stateful Kitty frame presentation
-src/visual.rs       Bioluminescent tidepool scene, lifeform state, and canvas composition
+src/visual.rs       Public visual module exports
+src/visual/         Tidepool scene orchestration, environment, lifeforms, sparse layers, and math helpers
 src/terminal.rs     Terminal session, validation, and control sequences
 src/simulation.rs   Smoothed activity model for future visual systems
 src/metrics/        CPU, memory, network, and disk sampling
