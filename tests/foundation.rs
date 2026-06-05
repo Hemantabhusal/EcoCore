@@ -8,6 +8,7 @@ use ecosystem::{
     input::{EngineAction, key_event_to_action},
     kitty::KittyImageId,
     layout::{CellSize, ImagePlacement},
+    renderer::{DirtyRegionMode, DirtyRegionSummary},
     runtime::{
         ResizeDebouncer, ResizeDecision, RuntimeConfig, advance_frame_deadline, resize_decision,
         target_frame_duration,
@@ -162,6 +163,14 @@ fn graphics_frame_trace_formats_measurement_snapshot_for_terminal_runs() {
         total_protocol_bytes: 5_187_000,
         skipped_deadlines: 2,
         interrupted: true,
+        dirty_summary: DirtyRegionSummary {
+            mode: DirtyRegionMode::Rejected,
+            selected_regions: 0,
+            selected_area: 0,
+            tile_regions: 64,
+            tile_area: 16_384,
+            bounding_area: 28_000,
+        },
         render_time: Duration::from_micros(700),
         encode_time: Duration::from_micros(2_400),
         write_time: Duration::from_micros(500),
@@ -179,7 +188,7 @@ fn graphics_frame_trace_formats_measurement_snapshot_for_terminal_runs() {
     assert_eq!(event.target, "graphics.frame");
     assert_eq!(
         event.message,
-        "tick 30: 240x135 canvas, 30x10 cells at 46,16, 30.0 fps, image 2, deleted 1, 173152 bytes sent, full 173152 bytes, partial 31400 bytes, avg 172900 bytes/frame, 5187000 protocol bytes total, skipped 2 deadlines, interrupted yes, render 700us, encode 2400us, write 500us, frame 3100us, avg render 800us, avg encode 2200us, avg write 400us, avg frame 3400us"
+        "tick 30: 240x135 canvas, 30x10 cells at 46,16, 30.0 fps, image 2, deleted 1, 173152 bytes sent, full 173152 bytes, partial 31400 bytes, avg 172900 bytes/frame, 5187000 protocol bytes total, skipped 2 deadlines, interrupted yes, dirty rejected, regions 0, area 0px, tiles 64 / 16384px, bounds 28000px, render 700us, encode 2400us, write 500us, frame 3100us, avg render 800us, avg encode 2200us, avg write 400us, avg frame 3400us"
     );
 }
 

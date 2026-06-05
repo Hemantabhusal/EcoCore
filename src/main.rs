@@ -256,6 +256,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                             total_protocol_bytes: renderer_stats.total_protocol_bytes(),
                             skipped_deadlines: measurement_window_skipped_deadlines,
                             interrupted: measurement_window_interrupted,
+                            dirty_summary: frame.dirty_summary,
                             render_time,
                             encode_time,
                             write_time,

@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::{kitty::KittyImageId, layout::ImagePlacement};
+use crate::{kitty::KittyImageId, layout::ImagePlacement, renderer::DirtyRegionSummary};
 
 #[derive(Clone, Debug)]
 pub struct TraceEvent {
@@ -72,6 +72,7 @@ pub struct GraphicsFrameTrace {
     pub total_protocol_bytes: u64,
     pub skipped_deadlines: u64,
     pub interrupted: bool,
+    pub dirty_summary: DirtyRegionSummary,
     pub render_time: Duration,
     pub encode_time: Duration,
     pub write_time: Duration,
@@ -91,7 +92,7 @@ impl GraphicsFrameTrace {
 
     fn message(self) -> String {
         format!(
-            "tick {}: {}x{} canvas, {}x{} cells at {},{}, {:.1} fps, image {}, deleted {}, {} bytes sent, full {} bytes, partial {} bytes, avg {} bytes/frame, {} protocol bytes total, skipped {} deadlines, interrupted {}, render {}us, encode {}us, write {}us, frame {}us, avg render {}us, avg encode {}us, avg write {}us, avg frame {}us",
+            "tick {}: {}x{} canvas, {}x{} cells at {},{}, {:.1} fps, image {}, deleted {}, {} bytes sent, full {} bytes, partial {} bytes, avg {} bytes/frame, {} protocol bytes total, skipped {} deadlines, interrupted {}, dirty {}, regions {}, area {}px, tiles {} / {}px, bounds {}px, render {}us, encode {}us, write {}us, frame {}us, avg render {}us, avg encode {}us, avg write {}us, avg frame {}us",
             self.tick,
             self.canvas_width,
             self.canvas_height,
@@ -109,6 +110,12 @@ impl GraphicsFrameTrace {
             self.total_protocol_bytes,
             self.skipped_deadlines,
             format_interrupted(self.interrupted),
+            self.dirty_summary.mode.as_str(),
+            self.dirty_summary.selected_regions,
+            self.dirty_summary.selected_area,
+            self.dirty_summary.tile_regions,
+            self.dirty_summary.tile_area,
+            self.dirty_summary.bounding_area,
             self.render_time.as_micros(),
             self.encode_time.as_micros(),
             self.write_time.as_micros(),

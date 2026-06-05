@@ -76,6 +76,12 @@ heavier environment refresh, so the `avg ...` timing fields are the better
 signal for deciding whether the next optimization belongs in visual rendering,
 Kitty encoding, or terminal output.
 
+Trace mode also reports dirty-region selection for each sampled frame. `dirty`
+shows whether the renderer selected tile regions, the exact bounding rectangle,
+rejected a near-full partial update, or required a full frame. `regions` and
+`area` describe the selected partial payload, while `tiles` and `bounds` show
+the tile candidate area and bounding-rectangle area that drove the decision.
+
 Phase 3E art work should currently improve the scene inside this measured
 render envelope before raising canvas resolution. The direct 336x224 test showed
 that terminal graphics throughput, not local drawing, is the practical limit in

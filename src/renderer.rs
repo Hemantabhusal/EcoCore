@@ -19,6 +19,51 @@ pub struct RenderedKittyFrame {
     pub image_id: KittyImageId,
     pub deleted_image_id: Option<KittyImageId>,
     pub partial_update: bool,
+    pub dirty_summary: DirtyRegionSummary,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DirtyRegionSummary {
+    pub mode: DirtyRegionMode,
+    pub selected_regions: usize,
+    pub selected_area: u32,
+    pub tile_regions: usize,
+    pub tile_area: u32,
+    pub bounding_area: u32,
+}
+
+impl DirtyRegionSummary {
+    const fn full_required() -> Self {
+        Self {
+            mode: DirtyRegionMode::FullRequired,
+            selected_regions: 0,
+            selected_area: 0,
+            tile_regions: 0,
+            tile_area: 0,
+            bounding_area: 0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DirtyRegionMode {
+    FullRequired,
+    Tile,
+    Bounding,
+    Rejected,
+    Empty,
+}
+
+impl DirtyRegionMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FullRequired => "full-required",
+            Self::Tile => "tile",
+            Self::Bounding => "bounding",
+            Self::Rejected => "rejected",
+            Self::Empty => "empty",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,10 +100,10 @@ impl KittyRenderer {
             self.config.image_columns,
             self.config.image_rows,
         );
-        let partial_regions = partial_update_regions(canvas);
+        let partial_selection = partial_update_regions(canvas);
         let partial_update = self.visible_image_id.is_some()
             && self.visible_placement == Some(placement)
-            && partial_regions.is_some();
+            && partial_selection.regions.is_some();
         let full_update_required = self.visible_image_id.is_none()
             || self.visible_placement != Some(placement)
             || canvas.full_frame_required()
@@ -86,7 +131,10 @@ impl KittyRenderer {
                 .with_placement(KittyPlacement::new(placement.columns, placement.rows))
                 .append_canvas_with_scratch(canvas, &mut bytes, &mut self.encode_scratch);
         } else {
-            for region in partial_regions.expect("partial updates require regions") {
+            for region in partial_selection
+                .regions
+                .expect("partial updates require regions")
+            {
                 KittyGraphicsEncoder::new(image_id).append_frame_region_with_scratch(
                     canvas,
                     region,
@@ -119,6 +167,7 @@ impl KittyRenderer {
             image_id,
             deleted_image_id: previous_image_id,
             partial_update,
+            dirty_summary: partial_selection.summary,
         }
     }
 
@@ -248,27 +297,83 @@ const fn average(total: u64, count: u64) -> u64 {
     }
 }
 
-fn are_useful_partial_regions(canvas: &Canvas, regions: &[DirtyRegion]) -> bool {
-    let dirty_area: u32 = regions
+struct PartialRegionSelection {
+    regions: Option<Vec<DirtyRegion>>,
+    summary: DirtyRegionSummary,
+}
+
+fn dirty_area(regions: &[DirtyRegion]) -> u32 {
+    regions
         .iter()
         .map(|region| u32::from(region.width) * u32::from(region.height))
-        .sum();
+        .sum()
+}
+
+fn are_useful_partial_area(canvas: &Canvas, dirty_area: u32) -> bool {
     let canvas_area = u32::from(canvas.width()) * u32::from(canvas.height());
 
     dirty_area * 100 <= canvas_area * MAX_PARTIAL_DIRTY_AREA_PERCENT
 }
 
-fn partial_update_regions(canvas: &Canvas) -> Option<Vec<DirtyRegion>> {
+fn partial_update_regions(canvas: &Canvas) -> PartialRegionSelection {
     if canvas.full_frame_required() {
-        return None;
+        return PartialRegionSelection {
+            regions: None,
+            summary: DirtyRegionSummary::full_required(),
+        };
     }
 
     let tile_regions = canvas.dirty_regions();
-    if !tile_regions.is_empty() && are_useful_partial_regions(canvas, &tile_regions) {
-        return Some(tile_regions);
+    let tile_area = dirty_area(&tile_regions);
+    let bounding_region = canvas.dirty_region();
+    let bounding_area = bounding_region
+        .map(|region| u32::from(region.width) * u32::from(region.height))
+        .unwrap_or(0);
+
+    if !tile_regions.is_empty() && are_useful_partial_area(canvas, tile_area) {
+        let summary = DirtyRegionSummary {
+            mode: DirtyRegionMode::Tile,
+            selected_regions: tile_regions.len(),
+            selected_area: tile_area,
+            tile_regions: tile_regions.len(),
+            tile_area,
+            bounding_area,
+        };
+        return PartialRegionSelection {
+            regions: Some(tile_regions),
+            summary,
+        };
     }
 
-    let bounding_region = canvas.dirty_region()?;
-    let bounding_regions = [bounding_region];
-    are_useful_partial_regions(canvas, &bounding_regions).then_some(vec![bounding_region])
+    if let Some(region) = bounding_region
+        && are_useful_partial_area(canvas, bounding_area)
+    {
+        return PartialRegionSelection {
+            regions: Some(vec![region]),
+            summary: DirtyRegionSummary {
+                mode: DirtyRegionMode::Bounding,
+                selected_regions: 1,
+                selected_area: bounding_area,
+                tile_regions: tile_regions.len(),
+                tile_area,
+                bounding_area,
+            },
+        };
+    }
+
+    PartialRegionSelection {
+        regions: None,
+        summary: DirtyRegionSummary {
+            mode: if bounding_region.is_some() {
+                DirtyRegionMode::Rejected
+            } else {
+                DirtyRegionMode::Empty
+            },
+            selected_regions: 0,
+            selected_area: 0,
+            tile_regions: tile_regions.len(),
+            tile_area,
+            bounding_area,
+        },
+    }
 }
