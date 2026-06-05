@@ -24,16 +24,20 @@ pub struct RenderedKittyFrame {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KittyRenderer {
     config: KittyRendererConfig,
+    next_buffer_index: usize,
     visible_image_id: Option<KittyImageId>,
     visible_placement: Option<ImagePlacement>,
     stats: KittyRendererStats,
     encode_scratch: KittyEncodeScratch,
 }
 
+const MAX_PARTIAL_DIRTY_AREA_PERCENT: u32 = 30;
+
 impl KittyRenderer {
     pub fn new(config: KittyRendererConfig) -> Self {
         Self {
             config,
+            next_buffer_index: 0,
             visible_image_id: None,
             visible_placement: None,
             stats: KittyRendererStats::new(),
@@ -46,17 +50,32 @@ impl KittyRenderer {
         terminal_size: TerminalSize,
         canvas: &Canvas,
     ) -> RenderedKittyFrame {
-        let image_id = self.config.image_ids[0];
         let placement = centered_image_placement(
             terminal_size,
             self.config.image_columns,
             self.config.image_rows,
         );
         let dirty_region = canvas.dirty_region();
+        let partial_update = self.visible_image_id.is_some()
+            && self.visible_placement == Some(placement)
+            && !canvas.full_frame_required()
+            && dirty_region.is_some_and(|region| is_useful_partial_region(canvas, region));
         let full_update_required = self.visible_image_id.is_none()
             || self.visible_placement != Some(placement)
             || canvas.full_frame_required()
-            || dirty_region.is_none();
+            || !partial_update;
+        let image_id = if partial_update {
+            self.visible_image_id
+                .expect("partial updates require an existing visible image")
+        } else {
+            self.config.image_ids[self.next_buffer_index]
+        };
+        let previous_image_id = (!partial_update)
+            .then(|| {
+                self.visible_image_id
+                    .filter(|previous| *previous != image_id)
+            })
+            .flatten();
 
         let mut bytes = Vec::new();
         if full_update_required {
@@ -76,21 +95,34 @@ impl KittyRenderer {
             );
         }
 
+        if let Some(previous) = previous_image_id {
+            KittyGraphicsEncoder::new(previous).append_delete(&mut bytes);
+        }
+
         self.visible_image_id = Some(image_id);
         self.visible_placement = Some(placement);
-        self.stats
-            .record_frame(bytes.len(), full_update_required, image_id, None, placement);
+        if !partial_update {
+            self.next_buffer_index = (self.next_buffer_index + 1) % self.config.image_ids.len();
+        }
+        self.stats.record_frame(
+            bytes.len(),
+            full_update_required,
+            image_id,
+            previous_image_id,
+            placement,
+        );
 
         RenderedKittyFrame {
             bytes,
             placement,
             image_id,
-            deleted_image_id: None,
-            partial_update: !full_update_required,
+            deleted_image_id: previous_image_id,
+            partial_update,
         }
     }
 
     pub fn reset(&mut self) -> Vec<u8> {
+        self.next_buffer_index = 0;
         self.visible_image_id = None;
         self.visible_placement = None;
 
@@ -213,4 +245,11 @@ const fn average(total: u64, count: u64) -> u64 {
         0 => 0,
         count => total / count,
     }
+}
+
+fn is_useful_partial_region(canvas: &Canvas, region: crate::canvas::DirtyRegion) -> bool {
+    let dirty_area = u32::from(region.width) * u32::from(region.height);
+    let canvas_area = u32::from(canvas.width()) * u32::from(canvas.height());
+
+    dirty_area * 100 <= canvas_area * MAX_PARTIAL_DIRTY_AREA_PERCENT
 }
