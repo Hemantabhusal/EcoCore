@@ -87,7 +87,9 @@ even though the encoded payload should remain tied to the fixed canvas size.
 The expensive environment composite is cached and refreshed every eight ticks
 so deep water, surface shimmer, reef growth, and current bands run below the
 display frame rate while sparse lifeforms, wakes, motes, polyps, and sparks
-still render at the 30 FPS target.
+still render at the 30 FPS target. Environment refreshes clear their internal
+dirty metadata after copying the cached background, so following sparse layers
+own the quiet-frame dirty region instead of inheriting a full-canvas mark.
 
 Small quiet-frame dirty regions keep the same Kitty image id alive and transmit
 cropped frame-data updates. Near-full dirty regions, environment refreshes, and
@@ -95,8 +97,9 @@ resize-driven placement changes use the double-buffered full-frame path: draw
 the next image id first, then delete the previous one. The current dirty tracker
 stores one bounding rectangle; local trace data showed that sparse entities can
 span enough of the canvas for a "partial" update to cost about as much as a full
-frame. Trace mode separates cumulative full and partial bytes so tile/rect-list
-tracking can be justified with measurements instead of guesses.
+frame even after environment metadata is clean. Trace mode separates cumulative
+full and partial bytes so tile/rect-list tracking can be justified with
+measurements instead of guesses.
 
 Kitty graphics commands are emitted with quiet response mode enabled so success
 acknowledgements do not leak into trace output. The application still validates

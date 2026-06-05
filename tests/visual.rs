@@ -101,12 +101,9 @@ fn probe_scene_keeps_quiet_frame_on_partial_update_path_after_environment_refres
 
     scene.render(0, &SceneActivity::default());
     let canvas = scene.render(1, &SceneActivity::default());
+    let dirty_region = canvas.dirty_region().expect("sparse layers changed pixels");
 
-    assert!(
-        canvas
-            .dirty_region()
-            .is_some_and(|dirty| dirty.width > 0 && dirty.height > 0)
-    );
+    assert!(dirty_region.width > 0 && dirty_region.height > 0);
     assert!(!canvas.full_frame_required());
 }
 

@@ -497,6 +497,7 @@ fn draw_environment(
         layer.cache.clear_dirty();
         layer.refresh_tick = Some(refresh_tick);
         canvas.pixels_mut().copy_from_slice(layer.cache.pixels());
+        canvas.clear_dirty();
         return true;
     }
 
@@ -1145,5 +1146,20 @@ mod tests {
         assert!(layer.render_environment(&mut next_refresh_window, SceneFrame::new(8, &activity)));
 
         assert_ne!(next_refresh_window.pixels(), first_pixels.as_slice());
+    }
+
+    #[test]
+    fn environment_refresh_leaves_canvas_clean_for_sparse_dirty_tracking() {
+        let activity = SceneActivity::from_core_loads(vec![0.45])
+            .with_memory_pressure(0.55)
+            .with_network_flow(0.35, 0.0);
+        let mut layer =
+            EnvironmentLayer::new(TidepoolCanvasConfig::new(32, 18)).expect("valid layer");
+        let mut canvas = Canvas::new(32, 18, Rgba::rgb(0, 0, 0)).expect("valid canvas");
+
+        assert!(layer.render_environment(&mut canvas, SceneFrame::new(0, &activity)));
+
+        assert_eq!(canvas.dirty_region(), None);
+        assert!(!canvas.full_frame_required());
     }
 }
