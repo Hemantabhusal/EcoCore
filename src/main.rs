@@ -91,6 +91,10 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
     let mut measurement_window_frames = 0_u64;
     let mut measurement_window_skipped_deadlines = 0_u64;
     let mut measurement_window_interrupted = false;
+    let mut measurement_window_render_time = Duration::ZERO;
+    let mut measurement_window_encode_time = Duration::ZERO;
+    let mut measurement_window_write_time = Duration::ZERO;
+    let mut measurement_window_frame_time = Duration::ZERO;
     traces.record(TraceEvent::new(
         "frame",
         format!("targeting {} fps", config.target_fps),
@@ -185,6 +189,10 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     measurement_window_started_at = Instant::now();
                     measurement_window_frames = 0;
                     measurement_window_skipped_deadlines = 0;
+                    measurement_window_render_time = Duration::ZERO;
+                    measurement_window_encode_time = Duration::ZERO;
+                    measurement_window_write_time = Duration::ZERO;
+                    measurement_window_frame_time = Duration::ZERO;
                     measurement_window_interrupted = true;
                 }
                 ResizeDecision::Suspend { actual, minimum } => {
@@ -199,6 +207,10 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     measurement_window_started_at = Instant::now();
                     measurement_window_frames = 0;
                     measurement_window_skipped_deadlines = 0;
+                    measurement_window_render_time = Duration::ZERO;
+                    measurement_window_encode_time = Duration::ZERO;
+                    measurement_window_write_time = Duration::ZERO;
+                    measurement_window_frame_time = Duration::ZERO;
                     measurement_window_interrupted = true;
                 }
             }
@@ -213,12 +225,19 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                 let frame_started = Instant::now();
                 let canvas = visual_scene.render(tick, scene_activity);
                 let encode_started = Instant::now();
+                let render_time = encode_started.duration_since(frame_started);
                 let frame = renderer.render_frame(size, canvas);
-                let encode_time = encode_started.elapsed();
+                let write_started = Instant::now();
+                let encode_time = write_started.duration_since(encode_started);
                 session.writer_mut().write_all(&frame.bytes)?;
                 session.writer_mut().flush()?;
+                let write_time = write_started.elapsed();
                 let frame_time = frame_started.elapsed();
                 measurement_window_frames += 1;
+                measurement_window_render_time += render_time;
+                measurement_window_encode_time += encode_time;
+                measurement_window_write_time += write_time;
+                measurement_window_frame_time += frame_time;
 
                 if tick.is_multiple_of(u64::from(config.target_fps)) {
                     let renderer_stats = renderer.stats();
@@ -237,8 +256,26 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                             total_protocol_bytes: renderer_stats.total_protocol_bytes(),
                             skipped_deadlines: measurement_window_skipped_deadlines,
                             interrupted: measurement_window_interrupted,
+                            render_time,
                             encode_time,
+                            write_time,
                             frame_time,
+                            average_render_time: average_duration(
+                                measurement_window_render_time,
+                                measurement_window_frames,
+                            ),
+                            average_encode_time: average_duration(
+                                measurement_window_encode_time,
+                                measurement_window_frames,
+                            ),
+                            average_write_time: average_duration(
+                                measurement_window_write_time,
+                                measurement_window_frames,
+                            ),
+                            average_frame_time: average_duration(
+                                measurement_window_frame_time,
+                                measurement_window_frames,
+                            ),
                             frames_in_window: measurement_window_frames,
                             window_elapsed: measurement_window_started_at.elapsed(),
                         }
@@ -247,6 +284,10 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     measurement_window_started_at = Instant::now();
                     measurement_window_frames = 0;
                     measurement_window_skipped_deadlines = 0;
+                    measurement_window_render_time = Duration::ZERO;
+                    measurement_window_encode_time = Duration::ZERO;
+                    measurement_window_write_time = Duration::ZERO;
+                    measurement_window_frame_time = Duration::ZERO;
                     measurement_window_interrupted = false;
                 }
             }
@@ -371,5 +412,12 @@ fn emit_traces(traces: &TraceCollector) {
             event.target,
             event.message
         );
+    }
+}
+
+fn average_duration(total: Duration, count: u64) -> Duration {
+    match u32::try_from(count) {
+        Ok(0) | Err(_) => Duration::ZERO,
+        Ok(count) => total / count,
     }
 }

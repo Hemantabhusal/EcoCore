@@ -70,6 +70,12 @@ suspend handling affected that measurement window. Re-run trace mode after
 layout or visual changes because canvas size and protocol command shape directly
 affect Kitty protocol bytes per frame.
 
+Trace timing is split into `render`, `encode`, `write`, and total `frame`
+duration, plus window averages for each. The single-frame timing printed at
+ticks 30, 60, 90, and so on can coincide with an environment refresh, so the
+`avg ...` timing fields are the better signal for deciding whether the next
+optimization belongs in visual rendering, Kitty encoding, or terminal output.
+
 Phase 3E art work should currently improve the scene inside this measured
 render envelope before raising canvas resolution. The direct 336x224 test showed
 that terminal graphics throughput, not local drawing, is the practical limit in

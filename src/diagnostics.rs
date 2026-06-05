@@ -72,8 +72,14 @@ pub struct GraphicsFrameTrace {
     pub total_protocol_bytes: u64,
     pub skipped_deadlines: u64,
     pub interrupted: bool,
+    pub render_time: Duration,
     pub encode_time: Duration,
+    pub write_time: Duration,
     pub frame_time: Duration,
+    pub average_render_time: Duration,
+    pub average_encode_time: Duration,
+    pub average_write_time: Duration,
+    pub average_frame_time: Duration,
     pub frames_in_window: u64,
     pub window_elapsed: Duration,
 }
@@ -85,7 +91,7 @@ impl GraphicsFrameTrace {
 
     fn message(self) -> String {
         format!(
-            "tick {}: {}x{} canvas, {}x{} cells at {},{}, {:.1} fps, image {}, deleted {}, {} bytes sent, full {} bytes, partial {} bytes, avg {} bytes/frame, {} protocol bytes total, skipped {} deadlines, interrupted {}, encode {}us, frame {}us",
+            "tick {}: {}x{} canvas, {}x{} cells at {},{}, {:.1} fps, image {}, deleted {}, {} bytes sent, full {} bytes, partial {} bytes, avg {} bytes/frame, {} protocol bytes total, skipped {} deadlines, interrupted {}, render {}us, encode {}us, write {}us, frame {}us, avg render {}us, avg encode {}us, avg write {}us, avg frame {}us",
             self.tick,
             self.canvas_width,
             self.canvas_height,
@@ -103,8 +109,14 @@ impl GraphicsFrameTrace {
             self.total_protocol_bytes,
             self.skipped_deadlines,
             format_interrupted(self.interrupted),
+            self.render_time.as_micros(),
             self.encode_time.as_micros(),
-            self.frame_time.as_micros()
+            self.write_time.as_micros(),
+            self.frame_time.as_micros(),
+            self.average_render_time.as_micros(),
+            self.average_encode_time.as_micros(),
+            self.average_write_time.as_micros(),
+            self.average_frame_time.as_micros()
         )
     }
 

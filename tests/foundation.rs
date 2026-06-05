@@ -123,8 +123,14 @@ fn graphics_frame_trace_formats_measurement_snapshot_for_terminal_runs() {
         total_protocol_bytes: 5_187_000,
         skipped_deadlines: 2,
         interrupted: true,
+        render_time: Duration::from_micros(700),
         encode_time: Duration::from_micros(2_400),
+        write_time: Duration::from_micros(500),
         frame_time: Duration::from_micros(3_100),
+        average_render_time: Duration::from_micros(800),
+        average_encode_time: Duration::from_micros(2_200),
+        average_write_time: Duration::from_micros(400),
+        average_frame_time: Duration::from_micros(3_400),
         frames_in_window: 30,
         window_elapsed: Duration::from_millis(1_000),
     };
@@ -134,7 +140,7 @@ fn graphics_frame_trace_formats_measurement_snapshot_for_terminal_runs() {
     assert_eq!(event.target, "graphics.frame");
     assert_eq!(
         event.message,
-        "tick 30: 240x135 canvas, 30x10 cells at 46,16, 30.0 fps, image 2, deleted 1, 173152 bytes sent, full 173152 bytes, partial 31400 bytes, avg 172900 bytes/frame, 5187000 protocol bytes total, skipped 2 deadlines, interrupted yes, encode 2400us, frame 3100us"
+        "tick 30: 240x135 canvas, 30x10 cells at 46,16, 30.0 fps, image 2, deleted 1, 173152 bytes sent, full 173152 bytes, partial 31400 bytes, avg 172900 bytes/frame, 5187000 protocol bytes total, skipped 2 deadlines, interrupted yes, render 700us, encode 2400us, write 500us, frame 3100us, avg render 800us, avg encode 2200us, avg write 400us, avg frame 3400us"
     );
 }
 
