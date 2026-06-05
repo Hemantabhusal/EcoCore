@@ -95,12 +95,89 @@ impl DirtyRegion {
     }
 }
 
+const DIRTY_TILE_SIZE: u16 = 16;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct DirtyTiles {
+    columns: u16,
+    rows: u16,
+    dirty: Vec<bool>,
+}
+
+impl DirtyTiles {
+    fn new(width: u16, height: u16) -> Self {
+        let columns = width.div_ceil(DIRTY_TILE_SIZE);
+        let rows = height.div_ceil(DIRTY_TILE_SIZE);
+        Self {
+            columns,
+            rows,
+            dirty: vec![false; usize::from(columns) * usize::from(rows)],
+        }
+    }
+
+    fn clear(&mut self) {
+        self.dirty.fill(false);
+    }
+
+    fn mark_pixel(&mut self, x: u16, y: u16) {
+        let tile_x = x / DIRTY_TILE_SIZE;
+        let tile_y = y / DIRTY_TILE_SIZE;
+        self.mark_tile(tile_x, tile_y);
+    }
+
+    fn mark_region(&mut self, region: DirtyRegion) {
+        let first_tile_x = region.x / DIRTY_TILE_SIZE;
+        let first_tile_y = region.y / DIRTY_TILE_SIZE;
+        let last_tile_x = (region.x + region.width - 1) / DIRTY_TILE_SIZE;
+        let last_tile_y = (region.y + region.height - 1) / DIRTY_TILE_SIZE;
+
+        for tile_y in first_tile_y..=last_tile_y {
+            for tile_x in first_tile_x..=last_tile_x {
+                self.mark_tile(tile_x, tile_y);
+            }
+        }
+    }
+
+    fn mark_all(&mut self) {
+        self.dirty.fill(true);
+    }
+
+    fn regions(&self, canvas_width: u16, canvas_height: u16) -> Vec<DirtyRegion> {
+        let mut regions = Vec::new();
+        for tile_y in 0..self.rows {
+            for tile_x in 0..self.columns {
+                let index = usize::from(tile_y) * usize::from(self.columns) + usize::from(tile_x);
+                if !self.dirty[index] {
+                    continue;
+                }
+                let x = tile_x * DIRTY_TILE_SIZE;
+                let y = tile_y * DIRTY_TILE_SIZE;
+                regions.push(DirtyRegion {
+                    x,
+                    y,
+                    width: DIRTY_TILE_SIZE.min(canvas_width - x),
+                    height: DIRTY_TILE_SIZE.min(canvas_height - y),
+                });
+            }
+        }
+        regions
+    }
+
+    fn mark_tile(&mut self, tile_x: u16, tile_y: u16) {
+        let index = usize::from(tile_y) * usize::from(self.columns) + usize::from(tile_x);
+        if let Some(dirty) = self.dirty.get_mut(index) {
+            *dirty = true;
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Canvas {
     width: u16,
     height: u16,
     pixels: Vec<Rgba>,
     dirty_region: Option<DirtyRegion>,
+    dirty_tiles: DirtyTiles,
     full_frame_required: bool,
 }
 
@@ -116,6 +193,7 @@ impl Canvas {
             height,
             pixels: vec![fill; len],
             dirty_region: None,
+            dirty_tiles: DirtyTiles::new(width, height),
             full_frame_required: false,
         })
     }
@@ -134,6 +212,7 @@ impl Canvas {
 
     pub fn pixels_mut(&mut self) -> &mut [Rgba] {
         self.dirty_region = Some(DirtyRegion::full(self.width, self.height));
+        self.dirty_tiles.mark_all();
         self.full_frame_required = true;
         &mut self.pixels
     }
@@ -158,6 +237,7 @@ impl Canvas {
 
         self.pixels.fill(pixel);
         self.dirty_region = Some(DirtyRegion::full(self.width, self.height));
+        self.dirty_tiles.mark_all();
         self.full_frame_required = true;
     }
 
@@ -192,12 +272,17 @@ impl Canvas {
         self.dirty_region
     }
 
+    pub fn dirty_regions(&self) -> Vec<DirtyRegion> {
+        self.dirty_tiles.regions(self.width, self.height)
+    }
+
     pub const fn full_frame_required(&self) -> bool {
         self.full_frame_required
     }
 
     pub fn clear_dirty(&mut self) {
         self.dirty_region = None;
+        self.dirty_tiles.clear();
         self.full_frame_required = false;
     }
 
@@ -206,10 +291,12 @@ impl Canvas {
             Some(current) => current.include_region(region),
             None => region,
         });
+        self.dirty_tiles.mark_region(region);
     }
 
     pub fn mark_full_frame_required(&mut self) {
         self.dirty_region = Some(DirtyRegion::full(self.width, self.height));
+        self.dirty_tiles.mark_all();
         self.full_frame_required = true;
     }
 
@@ -218,6 +305,7 @@ impl Canvas {
             Some(region) => region.include(x, y),
             None => DirtyRegion::single_pixel(x, y),
         });
+        self.dirty_tiles.mark_pixel(x, y);
     }
 
     fn index(&self, x: u16, y: u16) -> Option<usize> {

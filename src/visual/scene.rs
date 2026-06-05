@@ -23,7 +23,7 @@ pub struct TidepoolScene {
     canvas: Canvas,
     environment: EnvironmentLayer,
     sparse_layers: Vec<Box<dyn SceneLayer>>,
-    previous_dynamic_dirty: Option<DirtyRegion>,
+    previous_dynamic_dirty: Vec<DirtyRegion>,
 }
 
 impl TidepoolScene {
@@ -32,7 +32,7 @@ impl TidepoolScene {
             canvas: Canvas::new(config.width, config.height, Rgba::rgb(0, 0, 0))?,
             environment: EnvironmentLayer::new(config)?,
             sparse_layers: tidepool_sparse_layers(config),
-            previous_dynamic_dirty: None,
+            previous_dynamic_dirty: Vec::new(),
         })
     }
 
@@ -41,15 +41,17 @@ impl TidepoolScene {
         self.canvas.clear_dirty();
 
         let environment_refreshed = self.environment.render_environment(&mut self.canvas, frame);
-        if !environment_refreshed && let Some(region) = self.previous_dynamic_dirty {
-            self.environment.restore_region(&mut self.canvas, region);
+        if !environment_refreshed {
+            for region in &self.previous_dynamic_dirty {
+                self.environment.restore_region(&mut self.canvas, *region);
+            }
         }
 
         for layer in &mut self.sparse_layers {
             layer.render(&mut self.canvas, frame);
         }
 
-        self.previous_dynamic_dirty = self.canvas.dirty_region();
+        self.previous_dynamic_dirty = self.canvas.dirty_regions();
         if environment_refreshed {
             self.canvas.mark_full_frame_required();
         }

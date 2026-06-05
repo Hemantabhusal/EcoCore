@@ -59,6 +59,45 @@ fn canvas_stores_pixels_and_tracks_dirty_region() {
 }
 
 #[test]
+fn canvas_tracks_dirty_tiles_for_distant_sparse_pixels() {
+    let mut canvas = Canvas::new(40, 20, Rgba::rgb(1, 2, 3)).expect("valid canvas");
+
+    canvas
+        .set_pixel(1, 1, Rgba::rgb(10, 20, 30))
+        .expect("pixel in bounds");
+    canvas
+        .set_pixel(38, 18, Rgba::rgb(30, 20, 10))
+        .expect("pixel in bounds");
+
+    assert_eq!(
+        canvas.dirty_region(),
+        Some(DirtyRegion {
+            x: 1,
+            y: 1,
+            width: 38,
+            height: 18
+        })
+    );
+    assert_eq!(
+        canvas.dirty_regions(),
+        [
+            DirtyRegion {
+                x: 0,
+                y: 0,
+                width: 16,
+                height: 16
+            },
+            DirtyRegion {
+                x: 32,
+                y: 16,
+                width: 8,
+                height: 4
+            }
+        ]
+    );
+}
+
+#[test]
 fn canvas_fill_marks_entire_surface_dirty_and_can_clear_dirty_state() {
     let mut canvas = Canvas::new(3, 2, Rgba::TRANSPARENT).expect("valid canvas");
     let fill = Rgba::rgb(10, 20, 30);

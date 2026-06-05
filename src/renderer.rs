@@ -1,5 +1,5 @@
 use crate::{
-    canvas::Canvas,
+    canvas::{Canvas, DirtyRegion},
     kitty::{KittyEncodeScratch, KittyGraphicsEncoder, KittyImageId, KittyPlacement},
     layout::{ImagePlacement, centered_image_placement},
     terminal::{TerminalSize, move_cursor_to},
@@ -55,11 +55,10 @@ impl KittyRenderer {
             self.config.image_columns,
             self.config.image_rows,
         );
-        let dirty_region = canvas.dirty_region();
+        let partial_regions = partial_update_regions(canvas);
         let partial_update = self.visible_image_id.is_some()
             && self.visible_placement == Some(placement)
-            && !canvas.full_frame_required()
-            && dirty_region.is_some_and(|region| is_useful_partial_region(canvas, region));
+            && partial_regions.is_some();
         let full_update_required = self.visible_image_id.is_none()
             || self.visible_placement != Some(placement)
             || canvas.full_frame_required()
@@ -86,13 +85,15 @@ impl KittyRenderer {
             KittyGraphicsEncoder::new(image_id)
                 .with_placement(KittyPlacement::new(placement.columns, placement.rows))
                 .append_canvas_with_scratch(canvas, &mut bytes, &mut self.encode_scratch);
-        } else if let Some(region) = dirty_region {
-            KittyGraphicsEncoder::new(image_id).append_frame_region_with_scratch(
-                canvas,
-                region,
-                &mut bytes,
-                &mut self.encode_scratch,
-            );
+        } else {
+            for region in partial_regions.expect("partial updates require regions") {
+                KittyGraphicsEncoder::new(image_id).append_frame_region_with_scratch(
+                    canvas,
+                    region,
+                    &mut bytes,
+                    &mut self.encode_scratch,
+                );
+            }
         }
 
         if let Some(previous) = previous_image_id {
@@ -247,9 +248,27 @@ const fn average(total: u64, count: u64) -> u64 {
     }
 }
 
-fn is_useful_partial_region(canvas: &Canvas, region: crate::canvas::DirtyRegion) -> bool {
-    let dirty_area = u32::from(region.width) * u32::from(region.height);
+fn are_useful_partial_regions(canvas: &Canvas, regions: &[DirtyRegion]) -> bool {
+    let dirty_area: u32 = regions
+        .iter()
+        .map(|region| u32::from(region.width) * u32::from(region.height))
+        .sum();
     let canvas_area = u32::from(canvas.width()) * u32::from(canvas.height());
 
     dirty_area * 100 <= canvas_area * MAX_PARTIAL_DIRTY_AREA_PERCENT
+}
+
+fn partial_update_regions(canvas: &Canvas) -> Option<Vec<DirtyRegion>> {
+    if canvas.full_frame_required() {
+        return None;
+    }
+
+    let tile_regions = canvas.dirty_regions();
+    if !tile_regions.is_empty() && are_useful_partial_regions(canvas, &tile_regions) {
+        return Some(tile_regions);
+    }
+
+    let bounding_region = canvas.dirty_region()?;
+    let bounding_regions = [bounding_region];
+    are_useful_partial_regions(canvas, &bounding_regions).then_some(vec![bounding_region])
 }

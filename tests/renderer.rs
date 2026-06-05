@@ -48,6 +48,37 @@ fn kitty_renderer_patches_dirty_region_without_deleting_visible_image() {
 }
 
 #[test]
+fn kitty_renderer_patches_multiple_dirty_tiles_without_full_frame_fallback() {
+    let mut canvas = Canvas::new(96, 64, Rgba::rgb(255, 0, 0)).expect("valid canvas");
+    let mut renderer = KittyRenderer::new(KittyRendererConfig {
+        image_ids: [KittyImageId::new(100), KittyImageId::new(101)],
+        image_columns: 30,
+        image_rows: 10,
+    });
+
+    renderer.render_frame(TerminalSize::new(120, 40), &canvas);
+    canvas.clear_dirty();
+    canvas
+        .set_pixel(1, 1, Rgba::rgb(0, 255, 120))
+        .expect("pixel in bounds");
+    canvas
+        .set_pixel(94, 62, Rgba::rgb(0, 120, 255))
+        .expect("pixel in bounds");
+
+    let frame = renderer.render_frame(TerminalSize::new(120, 40), &canvas);
+    let command = String::from_utf8(frame.bytes).expect("renderer output is utf8");
+
+    assert_eq!(frame.image_id, KittyImageId::new(100));
+    assert_eq!(frame.deleted_image_id, None);
+    assert!(frame.partial_update);
+    assert_eq!(command.matches("\u{1b}_Ga=f").count(), 2);
+    assert!(command.contains("x=0,y=0,s=16,v=16"));
+    assert!(command.contains("x=80,y=48,s=16,v=16"));
+    assert!(!command.contains("a=d"));
+    assert!(!command.contains("a=T"));
+}
+
+#[test]
 fn kitty_renderer_uses_next_buffer_for_near_full_dirty_region() {
     let mut canvas = Canvas::new(10, 10, Rgba::rgb(255, 0, 0)).expect("valid canvas");
     let mut renderer = KittyRenderer::new(KittyRendererConfig {
