@@ -76,7 +76,11 @@ pub struct KittyRenderer {
     encode_scratch: KittyEncodeScratch,
 }
 
-const MAX_PARTIAL_DIRTY_AREA_PERCENT: u32 = 30;
+// Live Kitty traces showed useful distributed tile updates around 37-49% of the
+// canvas. Keep the cutoff at half-frame area so those frames avoid full image
+// replacement while genuinely near-full dirty sets still use the stable
+// double-buffer path.
+const MAX_PARTIAL_DIRTY_AREA_PERCENT: u32 = 50;
 
 impl KittyRenderer {
     pub fn new(config: KittyRendererConfig) -> Self {

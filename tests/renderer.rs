@@ -1,7 +1,7 @@
 use ecosystem::{
     canvas::{Canvas, DirtyRegion, Rgba},
     kitty::KittyImageId,
-    renderer::{KittyRenderer, KittyRendererConfig},
+    renderer::{DirtyRegionMode, KittyRenderer, KittyRendererConfig},
     terminal::TerminalSize,
 };
 
@@ -76,6 +76,67 @@ fn kitty_renderer_patches_multiple_dirty_tiles_without_full_frame_fallback() {
     assert!(command.contains("x=80,y=48,s=16,v=16"));
     assert!(!command.contains("a=d"));
     assert!(!command.contains("a=T"));
+}
+
+#[test]
+fn kitty_renderer_accepts_mid_sized_tile_updates_when_bounds_cover_canvas() {
+    let mut canvas = Canvas::new(252, 154, Rgba::rgb(255, 0, 0)).expect("valid canvas");
+    let mut renderer = KittyRenderer::new(KittyRendererConfig {
+        image_ids: [KittyImageId::new(100), KittyImageId::new(101)],
+        image_columns: 42,
+        image_rows: 14,
+    });
+
+    renderer.render_frame(TerminalSize::new(192, 48), &canvas);
+    canvas.clear_dirty();
+    let mut marked_tiles = 0;
+    for (tile_x, tile_y) in [(0, 0), (15, 9)] {
+        let x = tile_x * 16;
+        let y = tile_y * 16;
+        canvas.mark_dirty_region(DirtyRegion {
+            x,
+            y,
+            width: 16.min(canvas.width() - x),
+            height: 16.min(canvas.height() - y),
+        });
+        marked_tiles += 1;
+    }
+    for tile_y in 0..10 {
+        for tile_x in 0..16 {
+            if marked_tiles >= 72 {
+                break;
+            }
+            if matches!((tile_x, tile_y), (0, 0) | (15, 9)) {
+                continue;
+            }
+            if (tile_x + tile_y) % 2 == 0 {
+                let x = tile_x * 16;
+                let y = tile_y * 16;
+                canvas.mark_dirty_region(DirtyRegion {
+                    x,
+                    y,
+                    width: 16.min(canvas.width() - x),
+                    height: 16.min(canvas.height() - y),
+                });
+                marked_tiles += 1;
+            }
+        }
+    }
+
+    let frame = renderer.render_frame(TerminalSize::new(192, 48), &canvas);
+
+    assert!(frame.partial_update);
+    assert_eq!(frame.deleted_image_id, None);
+    assert_eq!(frame.dirty_summary.mode, DirtyRegionMode::Tile);
+    assert_eq!(frame.dirty_summary.selected_regions, 72);
+    assert!(
+        frame.dirty_summary.selected_area * 2
+            <= u32::from(canvas.width()) * u32::from(canvas.height())
+    );
+    assert_eq!(
+        frame.dirty_summary.bounding_area,
+        u32::from(canvas.width()) * u32::from(canvas.height())
+    );
 }
 
 #[test]

@@ -104,8 +104,10 @@ the next image id first, then delete the previous one. The current dirty tracker
 keeps both the exact bounding rectangle and 16x16 tile regions. The renderer
 uses useful tile-region updates for distributed sparse changes, falls back to
 the exact bounding rectangle when that is smaller, and rejects near-full partial
-payloads. Trace mode separates cumulative full and partial bytes so larger
-canvas decisions can be based on measured traffic instead of guesses.
+payloads. Live Phase 3E traces showed useful distributed tile updates around
+37-49% of the canvas, so the current partial-update cutoff is intentionally set
+at half-frame area. Trace mode separates cumulative full and partial bytes so
+larger canvas decisions can be based on measured traffic instead of guesses.
 
 Kitty graphics commands are emitted with quiet response mode enabled so success
 acknowledgements do not leak into trace output. The application still validates
