@@ -44,6 +44,14 @@ impl SceneActivity {
         &self.core_loads
     }
 
+    pub fn average_core_load(&self) -> f32 {
+        if self.core_loads.is_empty() {
+            return 0.0;
+        }
+
+        self.core_loads.iter().sum::<f32>() / self.core_loads.len() as f32
+    }
+
     pub fn memory_pressure(&self) -> f32 {
         self.memory_pressure
     }

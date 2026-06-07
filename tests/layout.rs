@@ -23,20 +23,20 @@ fn centered_image_placement_uses_one_based_cursor_coordinates() {
 }
 
 #[test]
-fn larger_displayed_tidepool_can_use_capped_render_density() {
-    let layout = graphics_layout(TerminalSize::new(120, 40), 42, 14, CellSize::new(6, 11));
+fn cafe_layout_uses_larger_macro_readable_canvas() {
+    let layout = graphics_layout(TerminalSize::new(120, 40), 50, 16, CellSize::new(8, 12));
 
     assert_eq!(
         layout,
         GraphicsLayout {
             placement: ImagePlacement {
-                cursor_column: 40,
-                cursor_row: 14,
-                columns: 42,
-                rows: 14
+                cursor_column: 36,
+                cursor_row: 13,
+                columns: 50,
+                rows: 16
             },
-            canvas_width: 252,
-            canvas_height: 154
+            canvas_width: 400,
+            canvas_height: 192
         }
     );
 }

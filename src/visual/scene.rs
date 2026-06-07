@@ -1,78 +1,19 @@
 use crate::{
-    canvas::{Canvas, CanvasError, DirtyRegion, Rgba},
+    canvas::{Canvas, CanvasError, Rgba},
     simulation::SceneActivity,
 };
 
-use super::{environment::EnvironmentLayer, sparse::tidepool_sparse_layers};
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TidepoolCanvasConfig {
+pub struct SceneCanvasConfig {
     pub width: u16,
     pub height: u16,
 }
 
-impl TidepoolCanvasConfig {
+impl SceneCanvasConfig {
     pub const fn new(width: u16, height: u16) -> Self {
         Self { width, height }
     }
 }
-
-pub type ProbeCanvasConfig = TidepoolCanvasConfig;
-
-pub struct TidepoolScene {
-    canvas: Canvas,
-    environment: EnvironmentLayer,
-    sparse_layers: Vec<Box<dyn SceneLayer>>,
-    previous_dynamic_dirty: Vec<DirtyRegion>,
-}
-
-impl TidepoolScene {
-    pub fn new(config: TidepoolCanvasConfig) -> Result<Self, CanvasError> {
-        Ok(Self {
-            canvas: Canvas::new(config.width, config.height, Rgba::rgb(0, 0, 0))?,
-            environment: EnvironmentLayer::new(config)?,
-            sparse_layers: tidepool_sparse_layers(config),
-            previous_dynamic_dirty: Vec::new(),
-        })
-    }
-
-    pub fn render(&mut self, tick: u64, activity: &SceneActivity) -> &Canvas {
-        let frame = SceneFrame::new(tick, activity);
-        self.canvas.clear_dirty();
-
-        let environment_refreshed = self.environment.render_environment(&mut self.canvas, frame);
-        if !environment_refreshed {
-            for region in &self.previous_dynamic_dirty {
-                self.environment.restore_region(&mut self.canvas, *region);
-            }
-        }
-
-        for layer in &mut self.sparse_layers {
-            layer.render(&mut self.canvas, frame);
-        }
-
-        self.previous_dynamic_dirty = self.canvas.dirty_regions();
-        if environment_refreshed {
-            self.canvas.mark_full_frame_required();
-        }
-
-        &self.canvas
-    }
-
-    pub fn layer_names(&self) -> Vec<&'static str> {
-        self.environment
-            .layer_names()
-            .into_iter()
-            .chain(
-                self.sparse_layers
-                    .iter()
-                    .flat_map(|layer| layer.layer_names()),
-            )
-            .collect()
-    }
-}
-
-pub type ProbeScene = TidepoolScene;
 
 #[derive(Clone, Copy, Debug)]
 pub struct SceneFrame<'a> {
@@ -113,7 +54,7 @@ pub struct LayeredScene {
 
 impl LayeredScene {
     pub fn new(
-        config: TidepoolCanvasConfig,
+        config: SceneCanvasConfig,
         layers: Vec<Box<dyn SceneLayer>>,
     ) -> Result<Self, CanvasError> {
         Ok(Self {

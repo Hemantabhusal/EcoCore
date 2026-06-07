@@ -1,11 +1,5 @@
-mod environment;
-mod lifeforms;
-mod math;
+mod cafe;
 mod scene;
-mod sparse;
 
-pub use lifeforms::{LifeformField, LifeformSnapshot, LifeformTrailConfig, LifeformTrailSnapshot};
-pub use scene::{
-    LayeredScene, ProbeCanvasConfig, ProbeScene, SceneFrame, SceneLayer, TidepoolCanvasConfig,
-    TidepoolScene,
-};
+pub use cafe::{CafeCanvasConfig, CafeScene, CafeSceneError};
+pub use scene::{LayeredScene, SceneCanvasConfig, SceneFrame, SceneLayer};

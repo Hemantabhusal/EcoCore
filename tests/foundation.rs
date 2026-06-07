@@ -421,9 +421,9 @@ fn runtime_default_targets_thirty_frames_per_second() {
     assert_eq!(config.frame_duration(), target_frame_duration(30));
     assert_eq!(config.metrics_sample_interval.as_millis(), 500);
     assert_eq!(config.resize_debounce.as_millis(), 50);
-    assert_eq!(config.image_columns, 42);
-    assert_eq!(config.image_rows, 14);
-    assert_eq!(config.cell_size, CellSize::new(6, 11));
+    assert_eq!(config.image_columns, 50);
+    assert_eq!(config.image_rows, 16);
+    assert_eq!(config.cell_size, CellSize::new(8, 12));
 }
 
 #[test]
@@ -460,6 +460,14 @@ fn scene_activity_clamps_core_loads_to_normalized_range() {
     let activity = SceneActivity::from_core_loads(vec![-0.25, 1.40]);
 
     assert_eq!(activity.core_loads(), &[0.0, 1.0]);
+}
+
+#[test]
+fn scene_activity_reports_average_core_load_for_visual_energy() {
+    let activity = SceneActivity::from_core_loads(vec![0.25, 0.75, 1.0]);
+
+    assert_eq!(activity.average_core_load(), 2.0 / 3.0);
+    assert_eq!(SceneActivity::default().average_core_load(), 0.0);
 }
 
 #[test]

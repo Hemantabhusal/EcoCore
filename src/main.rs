@@ -21,7 +21,7 @@ use ecosystem::{
     terminal::{
         TerminalSession, TerminalSessionOptions, TerminalSize, clear_screen, current_terminal_size,
     },
-    visual::{TidepoolCanvasConfig, TidepoolScene},
+    visual::{CafeCanvasConfig, CafeScene},
 };
 
 const INPUT_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -64,7 +64,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
         image_columns: config.image_columns,
         image_rows: config.image_rows,
     });
-    let mut visual_scene = TidepoolScene::new(TidepoolCanvasConfig::new(
+    let mut visual_scene = CafeScene::new(CafeCanvasConfig::new(
         graphics_layout.canvas_width,
         graphics_layout.canvas_height,
     ))?;
@@ -176,7 +176,7 @@ fn run_once(traces: &mut TraceCollector) -> Result<(), Box<dyn std::error::Error
                     if new_graphics_layout.canvas_width != graphics_layout.canvas_width
                         || new_graphics_layout.canvas_height != graphics_layout.canvas_height
                     {
-                        visual_scene = TidepoolScene::new(TidepoolCanvasConfig::new(
+                        visual_scene = CafeScene::new(CafeCanvasConfig::new(
                             new_graphics_layout.canvas_width,
                             new_graphics_layout.canvas_height,
                         ))?;

@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 base64 = "0.22.1"
 crossterm = "0.28"
+png = "0.18.1"

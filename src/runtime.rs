@@ -27,16 +27,12 @@ impl Default for RuntimeConfig {
             target_fps: 30,
             metrics_sample_interval: Duration::from_millis(500),
             resize_debounce: Duration::from_millis(50),
-            // Keep the graphics viewport fixed and bounded for predictable
-            // terminal bandwidth, but large enough that the tidepool reads as
-            // a scene instead of a small preview tile.
-            image_columns: 42,
-            image_rows: 14,
-            // Kitty scales the image to the requested cell rectangle. Keep the
-            // displayed tidepool larger than the old 30x10 viewport, but cap
-            // render density so full-frame protocol bytes stay near the
-            // measured 240x160 baseline.
-            cell_size: CellSize::new(6, 11),
+            // Phase 4 starts with a larger macro-readable cafe canvas. Static
+            // background caching and bounded sprite animation should carry the
+            // performance load instead of tiny effects scattered everywhere.
+            image_columns: 50,
+            image_rows: 16,
+            cell_size: CellSize::new(8, 12),
         }
     }
 }

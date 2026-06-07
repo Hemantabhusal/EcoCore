@@ -34,6 +34,9 @@ The project currently includes:
 - Smoothed activity state for visual systems.
 - RGB/RGBA canvas storage with dirty-region tracking.
 - Kitty graphics protocol encoding and stateful image presentation.
+- RGBA PNG sprite loading and nearest-neighbor sprite blitting.
+- A first Midnight Cat Cafe runtime scene with a cached procedural background
+  and large imported cat sprite.
 - Full-frame and partial-frame protocol byte counters.
 - Deadline-based 30 FPS frame pacing.
 - Trace diagnostics for render, encode, write, frame time, FPS, skipped
@@ -81,7 +84,8 @@ src/kitty.rs        Kitty graphics protocol command encoding
 src/layout.rs       Terminal image placement calculations
 src/renderer.rs     Stateful Kitty frame presentation
 src/visual.rs       Public visual module exports
-src/visual/         Current visual scene modules
+src/visual/         Cafe scene and generic scene helpers
+assets/             Pixel-art assets and attribution notes
 src/terminal.rs     Terminal session, validation, and control sequences
 src/simulation.rs   Smoothed activity model
 src/metrics/        CPU, memory, network, and disk sampling
