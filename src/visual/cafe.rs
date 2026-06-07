@@ -32,8 +32,16 @@ pub struct CafeScene {
     cat_asleep_frames: Vec<Sprite>,
     cat_idle_frames: Vec<Sprite>,
     cat_walk_frames: Vec<Sprite>,
+    cat_presence: CatPresence,
     previous_dynamic_dirty: Vec<DirtyRegion>,
     first_render: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CatPresence {
+    Asleep,
+    Idle,
+    Walking,
 }
 
 impl CafeScene {
@@ -48,6 +56,7 @@ impl CafeScene {
             cat_asleep_frames: load_cat_frames(CAT_ASLEEP_SHEET)?,
             cat_idle_frames: load_cat_frames(CAT_IDLE_SHEET)?,
             cat_walk_frames: load_cat_frames(CAT_WALK_SHEET)?,
+            cat_presence: CatPresence::Idle,
             previous_dynamic_dirty: Vec::new(),
             first_render: true,
         })
@@ -85,8 +94,9 @@ impl CafeScene {
     }
 
     fn render_main_cat(&mut self, tick: u64, activity: &SceneActivity) {
+        self.update_cat_presence(activity.average_core_load());
         let cat = {
-            let (frames, cadence) = self.cat_frames_for_activity(activity.average_core_load());
+            let (frames, cadence) = self.cat_frames_for_presence();
             let frame_index = ((tick / cadence) as usize) % frames.len();
             frames[frame_index].clone()
         };
@@ -110,21 +120,33 @@ impl CafeScene {
             .expect("cat anchor is chosen to fit inside cafe canvas");
     }
 
-    fn cat_frames_for_activity(&self, average_core_load: f32) -> (&[Sprite], u64) {
-        if average_core_load >= 0.65 {
-            (&self.cat_walk_frames, 6)
-        } else if average_core_load <= 0.15 {
-            (&self.cat_asleep_frames, 18)
-        } else {
-            (&self.cat_idle_frames, 10)
+    fn update_cat_presence(&mut self, average_core_load: f32) {
+        self.cat_presence = match self.cat_presence {
+            CatPresence::Walking if average_core_load >= 0.45 => CatPresence::Walking,
+            CatPresence::Walking if average_core_load <= 0.12 => CatPresence::Asleep,
+            CatPresence::Walking => CatPresence::Idle,
+            CatPresence::Asleep if average_core_load <= 0.25 => CatPresence::Asleep,
+            CatPresence::Asleep if average_core_load >= 0.72 => CatPresence::Walking,
+            CatPresence::Asleep => CatPresence::Idle,
+            CatPresence::Idle if average_core_load >= 0.72 => CatPresence::Walking,
+            CatPresence::Idle if average_core_load <= 0.08 => CatPresence::Asleep,
+            CatPresence::Idle => CatPresence::Idle,
+        };
+    }
+
+    fn cat_frames_for_presence(&self) -> (&[Sprite], u64) {
+        match self.cat_presence {
+            CatPresence::Asleep => (&self.cat_asleep_frames, 18),
+            CatPresence::Idle => (&self.cat_idle_frames, 10),
+            CatPresence::Walking => (&self.cat_walk_frames, 6),
         }
     }
 }
 
 fn readable_cat_scale(width: u16, height: u16) -> u16 {
-    if width >= 520 && height >= 240 {
+    if width >= 640 && height >= 300 {
         4
-    } else if width >= 380 && height >= 180 {
+    } else if width >= 540 && height >= 252 {
         3
     } else {
         2
@@ -389,6 +411,24 @@ fn draw_shelves(canvas: &mut Canvas) {
 
 fn draw_counter_props(canvas: &mut Canvas) {
     let y = cafe_counter_top(canvas.height()).saturating_add(14);
+    let stage_width = canvas.width() / 5;
+    let stage_x = canvas.width().saturating_sub(stage_width) / 2;
+    draw_rect(
+        canvas,
+        stage_x,
+        cafe_counter_top(canvas.height()).saturating_add(12),
+        stage_width,
+        10,
+        Rgba::rgb(46, 28, 28),
+    );
+    draw_rect(
+        canvas,
+        stage_x.saturating_add(6),
+        cafe_counter_top(canvas.height()).saturating_add(12),
+        stage_width.saturating_sub(12),
+        2,
+        Rgba::rgb(121, 64, 40),
+    );
     draw_rect(
         canvas,
         canvas.width() / 5,

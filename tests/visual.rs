@@ -86,6 +86,7 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
 
     let window = canvas.pixel(335, 70).expect("window pixel in bounds");
     let counter = canvas.pixel(256, 190).expect("counter pixel in bounds");
+    let cat_stage = canvas.pixel(256, 174).expect("cat stage pixel in bounds");
     let lamp = canvas.pixel(100, 54).expect("lamp pixel in bounds");
     let wall = canvas.pixel(52, 132).expect("wall pixel in bounds");
 
@@ -93,6 +94,10 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
     assert!(
         counter.r > counter.b * 2,
         "counter should read as warm wood"
+    );
+    assert!(
+        cat_stage.r < counter.r && cat_stage.b < 40,
+        "counter should stage the cat with a darker resting area"
     );
     assert!(
         lamp.r > 180 && lamp.g > 120,
@@ -133,6 +138,59 @@ fn cafe_scene_switches_cat_presence_with_cpu_activity_inside_same_area() {
     );
     assert!(dirty_region.width <= 128);
     assert!(dirty_region.height <= 112);
+}
+
+#[test]
+fn cafe_scene_uses_smaller_cat_footprint_on_balanced_canvas() {
+    let mut scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
+
+    scene.render(0, &SceneActivity::default());
+    let canvas = scene.render(30, &SceneActivity::default());
+    let dirty_region = canvas
+        .dirty_region()
+        .expect("cat animation should mark a bounded region");
+
+    assert!(
+        dirty_region.width <= 96,
+        "cat should not dominate the 512x240 cafe width"
+    );
+    assert!(
+        dirty_region.height <= 96,
+        "cat should stay staged around the counter, not fill the scene"
+    );
+}
+
+#[test]
+fn cafe_scene_keeps_walking_state_through_brief_cpu_dip() {
+    let mut warmed_scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
+    let mut fresh_scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
+
+    warmed_scene.render(0, &SceneActivity::from_core_loads(vec![1.0]));
+    warmed_scene.render(30, &SceneActivity::from_core_loads(vec![1.0]));
+    let warmed_after_dip = warmed_scene
+        .render(36, &SceneActivity::from_core_loads(vec![0.60]))
+        .pixels()
+        .to_vec();
+
+    fresh_scene.render(0, &SceneActivity::from_core_loads(vec![0.60]));
+    let fresh_moderate = fresh_scene
+        .render(36, &SceneActivity::from_core_loads(vec![0.60]))
+        .pixels()
+        .to_vec();
+
+    let changed_pixels = warmed_after_dip
+        .iter()
+        .zip(&fresh_moderate)
+        .filter(|(warmed, fresh)| warmed != fresh)
+        .count();
+
+    assert!(
+        changed_pixels > 100,
+        "brief CPU dips should not immediately snap the cat out of walking"
+    );
 }
 
 #[test]

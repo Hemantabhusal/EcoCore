@@ -36,8 +36,8 @@ The project currently includes:
 - Kitty graphics protocol encoding and stateful image presentation.
 - RGBA PNG sprite loading and nearest-neighbor sprite blitting.
 - A Midnight Cat Cafe runtime scene with a cached procedural background,
-  warm/cool macro regions, asleep/idle/walk cat sprite states, and a measured
-  larger `512x240` cafe canvas target.
+  warm/cool macro regions, a staged counter cat, asleep/idle/walk cat states
+  with hysteresis, and a measured larger `512x240` cafe canvas target.
 - Full-frame and partial-frame protocol byte counters.
 - Deadline-based 30 FPS frame pacing.
 - Trace diagnostics for render, encode, write, frame time, FPS, skipped
