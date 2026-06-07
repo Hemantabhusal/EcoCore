@@ -4,7 +4,7 @@ use crate::{
     simulation::SceneActivity,
 };
 
-use super::background::{cafe_counter_top, window_geometry};
+use super::background::cafe_counter_top;
 
 const CAT_ASLEEP_SHEET: &[u8] =
     include_bytes!("../../../assets/cat_player/Cat_sheets/Cat_asleep_1.png");
@@ -74,14 +74,11 @@ impl CatAnimator {
     }
 
     fn render_secondary_cat(&self, canvas: &mut Canvas, tick: u64) {
-        let size = secondary_cat_size(canvas.width(), canvas.height());
-        let window = window_geometry(canvas.width(), canvas.height());
-        let x = window.x + window.width.saturating_sub(size + 18);
-        let y = window
-            .y
-            .saturating_add(window.height)
-            .saturating_sub(size + 8)
-            .saturating_add(((tick / 75) % 2) as u16);
+        let size = main_cat_size(canvas.width(), canvas.height());
+        let x = canvas.width() / 4;
+        let y = cafe_counter_top(canvas.height())
+            .saturating_sub(size)
+            .saturating_add(9 + ((tick / 75) % 2) as u16);
 
         blit_resized(&self.secondary_cat, canvas, x, y, size, size)
             .expect("secondary cat anchor is chosen to fit inside cafe canvas");
@@ -143,16 +140,6 @@ fn main_cat_size(width: u16, height: u16) -> u16 {
         50
     } else {
         42
-    }
-}
-
-fn secondary_cat_size(width: u16, height: u16) -> u16 {
-    if width >= 640 && height >= 300 {
-        44
-    } else if width >= 540 && height >= 252 {
-        34
-    } else {
-        28
     }
 }
 

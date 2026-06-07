@@ -69,14 +69,17 @@ fn cafe_scene_keeps_quiet_animation_dirty_region_spatially_bounded() {
 
     scene.render(0, &SceneActivity::default());
     let canvas = scene.render(1, &SceneActivity::default());
-    let dirty_region = canvas.dirty_region().expect("cat animation changed");
-    let dirty_area = u32::from(dirty_region.width) * u32::from(dirty_region.height);
+    let dirty_area: u32 = canvas
+        .dirty_regions()
+        .iter()
+        .map(|region| u32::from(region.width) * u32::from(region.height))
+        .sum();
     let canvas_area = u32::from(canvas.width()) * u32::from(canvas.height());
 
     assert!(!canvas.full_frame_required());
     assert!(
         dirty_area * 4 < canvas_area,
-        "quiet frame dirty bounds should stay under 25% of the canvas"
+        "quiet frame dirty tiles should stay under 25% of the canvas"
     );
 }
 
@@ -96,7 +99,7 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
     let lamp = canvas.pixel(100, 54).expect("lamp pixel in bounds");
     let wall = canvas.pixel(52, 132).expect("wall pixel in bounds");
     let wall_panel = canvas.pixel(92, 132).expect("wall panel pixel in bounds");
-    let counter_lip = canvas.pixel(180, 162).expect("counter lip pixel in bounds");
+    let counter_lip = canvas.pixel(440, 162).expect("counter lip pixel in bounds");
 
     assert!(window.b > window.r * 2, "window should read as cool night");
     assert!(
@@ -147,9 +150,6 @@ fn cafe_scene_switches_cat_presence_with_cpu_activity_inside_same_area() {
         .to_vec();
     let active_canvas = active_scene.render(30, &SceneActivity::from_core_loads(vec![1.0]));
     let active = active_canvas.pixels().to_vec();
-    let dirty_region = active_canvas
-        .dirty_region()
-        .expect("active cat sprite marks dirty region");
     let changed_pixels = active
         .iter()
         .zip(&calm)
@@ -160,14 +160,7 @@ fn cafe_scene_switches_cat_presence_with_cpu_activity_inside_same_area() {
         changed_pixels > 100,
         "cat state should visibly change with high CPU"
     );
-    assert!(
-        dirty_region.width <= 280,
-        "cat plus window rain should remain bounded"
-    );
-    assert!(
-        dirty_region.height <= 160,
-        "cat plus window rain should not dirty the full scene height"
-    );
+    assert_dirty_tiles_under_fraction(active_canvas, 3, "cat plus window rain");
 }
 
 #[test]
@@ -177,19 +170,9 @@ fn cafe_scene_uses_smaller_cat_footprint_on_balanced_canvas() {
 
     scene.render(0, &SceneActivity::default());
     let canvas = scene.render(30, &SceneActivity::default());
-    let dirty_region = canvas
-        .dirty_region()
-        .expect("cat animation should mark a bounded region");
 
-    assert!(
-        dirty_region.width <= 280,
-        "cat and window rain should not dominate the 512x240 cafe width"
-    );
-    assert!(
-        dirty_region.height <= 170,
-        "cat and window rain should not fill the scene height"
-    );
-    let white_bounds = white_cat_bounds(canvas).expect("main cat should be visible");
+    assert_dirty_tiles_under_fraction(canvas, 4, "cat and window rain");
+    let white_bounds = main_cat_white_bounds(canvas).expect("main cat should be visible");
     assert!(
         white_bounds.1 - white_bounds.0 <= 48,
         "main cat should be smaller than the previous 2x sprite footprint"
@@ -235,10 +218,10 @@ fn cafe_scene_walking_cat_paces_horizontally_under_high_cpu() {
     let high_cpu = SceneActivity::from_core_loads(vec![1.0]);
 
     scene.render(0, &high_cpu);
-    let first_bounds = white_cat_bounds(scene.render(30, &high_cpu))
+    let first_bounds = main_cat_white_bounds(scene.render(30, &high_cpu))
         .expect("walking cat should have visible white pixels");
-    let second_bounds =
-        white_cat_bounds(scene.render(54, &high_cpu)).expect("walking cat should remain visible");
+    let second_bounds = main_cat_white_bounds(scene.render(54, &high_cpu))
+        .expect("walking cat should remain visible");
 
     assert!(
         first_bounds.0.abs_diff(second_bounds.0) >= 4,
@@ -253,10 +236,10 @@ fn cafe_scene_idle_cat_breathes_subtly_in_place() {
     let idle = SceneActivity::from_core_loads(vec![0.35]);
 
     scene.render(0, &idle);
-    let first_bounds =
-        white_cat_bounds(scene.render(20, &idle)).expect("idle cat should have visible pixels");
+    let first_bounds = main_cat_white_bounds(scene.render(20, &idle))
+        .expect("idle cat should have visible pixels");
     let second_bounds =
-        white_cat_bounds(scene.render(50, &idle)).expect("idle cat should remain visible");
+        main_cat_white_bounds(scene.render(50, &idle)).expect("idle cat should remain visible");
 
     assert!(
         first_bounds.2.abs_diff(second_bounds.2) <= 2,
@@ -275,14 +258,18 @@ fn cafe_scene_renders_secondary_black_cat_for_variety() {
 
     let canvas = scene.render(0, &SceneActivity::default());
     let accent_pixels = count_secondary_cat_accent_pixels(canvas);
-    let white_bounds = white_cat_bounds(canvas).expect("main cat should be visible");
+    let white_bounds = main_cat_white_bounds(canvas).expect("main cat should be visible");
     let secondary_bounds = secondary_cat_accent_bounds(canvas)
         .expect("secondary black cat should have colored accent pixels");
 
     assert!(accent_pixels > 12, "black alternate cat should be visible");
     assert!(
-        secondary_bounds.1 - secondary_bounds.0 < white_bounds.1 - white_bounds.0,
-        "black customer cat should be smaller than the main cat"
+        secondary_bounds.1 - secondary_bounds.0 <= white_bounds.1 - white_bounds.0,
+        "black customer cat should not be larger than the main cat"
+    );
+    assert!(
+        secondary_bounds.0 < 220,
+        "black customer cat should sit on the counter bench, not against the window"
     );
 }
 
@@ -306,9 +293,6 @@ fn cafe_scene_maps_non_cpu_metrics_to_bounded_counter_activity() {
         .to_vec();
     let busy_canvas = busy_scene.render(18, &busy_activity);
     let busy = busy_canvas.pixels().to_vec();
-    let dirty_region = busy_canvas
-        .dirty_region()
-        .expect("counter activity should mark dirty pixels");
     let changed_pixels = busy
         .iter()
         .zip(&calm)
@@ -319,17 +303,28 @@ fn cafe_scene_maps_non_cpu_metrics_to_bounded_counter_activity() {
         changed_pixels > 30,
         "non-CPU metrics should produce visible bounded counter activity"
     );
+    assert_dirty_tiles_under_fraction(busy_canvas, 3, "counter activity plus window rain");
+}
+
+fn assert_dirty_tiles_under_fraction(canvas: &Canvas, denominator: u32, label: &str) {
+    let dirty_area = dirty_tile_area(canvas);
+    let canvas_area = u32::from(canvas.width()) * u32::from(canvas.height());
+
     assert!(
-        dirty_region.width <= 300,
-        "counter activity plus window rain must remain horizontally bounded"
-    );
-    assert!(
-        dirty_region.height <= 170,
-        "counter activity plus window rain must not dirty the full canvas height"
+        dirty_area * denominator < canvas_area,
+        "{label} should stay bounded in dirty tile area"
     );
 }
 
-fn white_cat_bounds(canvas: &Canvas) -> Option<(u16, u16, u16)> {
+fn dirty_tile_area(canvas: &Canvas) -> u32 {
+    canvas
+        .dirty_regions()
+        .iter()
+        .map(|region| u32::from(region.width) * u32::from(region.height))
+        .sum()
+}
+
+fn main_cat_white_bounds(canvas: &Canvas) -> Option<(u16, u16, u16)> {
     let mut min_x = u16::MAX;
     let mut max_x = 0;
     let mut min_y = u16::MAX;
@@ -350,8 +345,8 @@ fn white_cat_bounds(canvas: &Canvas) -> Option<(u16, u16, u16)> {
 }
 
 fn count_secondary_cat_accent_pixels(canvas: &Canvas) -> usize {
-    (108..152)
-        .flat_map(|y| (416..462).map(move |x| (x, y)))
+    (116..178)
+        .flat_map(|y| (120..220).map(move |x| (x, y)))
         .filter(|(x, y)| {
             let pixel = canvas
                 .pixel(*x, *y)
@@ -365,8 +360,8 @@ fn secondary_cat_accent_bounds(canvas: &Canvas) -> Option<(u16, u16)> {
     let mut min_x = u16::MAX;
     let mut max_x = 0;
     let mut found = false;
-    for y in 108..152 {
-        for x in 416..462 {
+    for y in 116..178 {
+        for x in 120..220 {
             let pixel = canvas
                 .pixel(x, y)
                 .expect("customer cat scan stays in-bounds");
@@ -390,9 +385,6 @@ fn cafe_scene_animates_window_rain_without_dirtying_the_whole_window() {
     let first_rain_frame = scene.render(1, &SceneActivity::default()).pixels().to_vec();
     let second_canvas = scene.render(6, &SceneActivity::default());
     let second_rain_frame = second_canvas.pixels().to_vec();
-    let dirty_region = second_canvas
-        .dirty_region()
-        .expect("animated rain should mark bounded dirty pixels");
     let changed_pixels = first_rain_frame
         .iter()
         .zip(&second_rain_frame)
@@ -400,14 +392,7 @@ fn cafe_scene_animates_window_rain_without_dirtying_the_whole_window() {
         .count();
 
     assert!(changed_pixels > 20, "window rain should animate");
-    assert!(
-        dirty_region.width <= 260,
-        "rain plus cat should stay bounded instead of repainting the scene"
-    );
-    assert!(
-        dirty_region.height <= 160,
-        "rain plus cat should not dirty the full canvas height"
-    );
+    assert_dirty_tiles_under_fraction(second_canvas, 3, "rain plus cat");
 }
 
 #[test]
