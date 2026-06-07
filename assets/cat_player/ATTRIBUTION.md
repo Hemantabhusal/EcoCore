@@ -7,15 +7,11 @@ Creator handles from the included readme:
 - Bluesky: `@jumpbutton.bsky.social`
 - Twitter/X: `@Jump_Button`
 
-Current committed file:
+Current committed files:
 
+- `Cat_sheets/Cat_asleep_1.png`
 - `Cat_sheets/Cat_idle_1.png`
-
-Project permission note:
-
-The project owner confirmed with the creator that the asset may be used for
-this non-profit open-source project. Keep this note with the asset so future
-contributors understand why it is bundled.
+- `Cat_sheets/Cat_walk_1.png`
 
 Original pack terms summarized from `Read_me.txt`:
 

@@ -4,11 +4,15 @@ use crate::{
     simulation::SceneActivity,
 };
 
+const CAT_ASLEEP_SHEET: &[u8] =
+    include_bytes!("../../assets/cat_player/Cat_sheets/Cat_asleep_1.png");
 const CAT_IDLE_SHEET: &[u8] = include_bytes!("../../assets/cat_player/Cat_sheets/Cat_idle_1.png");
+const CAT_WALK_SHEET: &[u8] = include_bytes!("../../assets/cat_player/Cat_sheets/Cat_walk_1.png");
 const CAT_FRAME_SIZE: u16 = 32;
 const CAFE_BACKGROUND: &str = "cafe_background";
 const MAIN_CAT_SPRITE: &str = "main_cat_sprite";
 const WINDOW_RAIN: &str = "window_rain";
+const WARM_LIGHT: &str = "warm_light";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CafeCanvasConfig {
@@ -25,7 +29,9 @@ impl CafeCanvasConfig {
 pub struct CafeScene {
     canvas: Canvas,
     background: Canvas,
+    cat_asleep_frames: Vec<Sprite>,
     cat_idle_frames: Vec<Sprite>,
+    cat_walk_frames: Vec<Sprite>,
     previous_dynamic_dirty: Vec<DirtyRegion>,
     first_render: bool,
 }
@@ -39,7 +45,9 @@ impl CafeScene {
         Ok(Self {
             canvas: Canvas::new(config.width, config.height, Rgba::rgb(0, 0, 0))?,
             background,
-            cat_idle_frames: load_idle_cat_frames()?,
+            cat_asleep_frames: load_cat_frames(CAT_ASLEEP_SHEET)?,
+            cat_idle_frames: load_cat_frames(CAT_IDLE_SHEET)?,
+            cat_walk_frames: load_cat_frames(CAT_WALK_SHEET)?,
             previous_dynamic_dirty: Vec::new(),
             first_render: true,
         })
@@ -72,13 +80,16 @@ impl CafeScene {
         &self.canvas
     }
 
-    pub const fn layer_names(&self) -> [&'static str; 3] {
-        [CAFE_BACKGROUND, MAIN_CAT_SPRITE, WINDOW_RAIN]
+    pub const fn layer_names(&self) -> [&'static str; 4] {
+        [CAFE_BACKGROUND, MAIN_CAT_SPRITE, WINDOW_RAIN, WARM_LIGHT]
     }
 
     fn render_main_cat(&mut self, tick: u64, activity: &SceneActivity) {
-        let frame_index = ((tick / 10) as usize) % self.cat_idle_frames.len();
-        let cat = &self.cat_idle_frames[frame_index];
+        let cat = {
+            let (frames, cadence) = self.cat_frames_for_activity(activity.average_core_load());
+            let frame_index = ((tick / cadence) as usize) % frames.len();
+            frames[frame_index].clone()
+        };
         let scale = readable_cat_scale(self.canvas.width(), self.canvas.height());
         let cat_width = cat.width() * scale;
         let cat_height = cat.height() * scale;
@@ -98,14 +109,24 @@ impl CafeScene {
         cat.blit_scaled(&mut self.canvas, SpriteBlit { x, y, scale })
             .expect("cat anchor is chosen to fit inside cafe canvas");
     }
+
+    fn cat_frames_for_activity(&self, average_core_load: f32) -> (&[Sprite], u64) {
+        if average_core_load >= 0.65 {
+            (&self.cat_walk_frames, 6)
+        } else if average_core_load <= 0.15 {
+            (&self.cat_asleep_frames, 18)
+        } else {
+            (&self.cat_idle_frames, 10)
+        }
+    }
 }
 
 fn readable_cat_scale(width: u16, height: u16) -> u16 {
     if width >= 380 && height >= 180 { 3 } else { 2 }
 }
 
-fn load_idle_cat_frames() -> Result<Vec<Sprite>, CafeSceneError> {
-    let sheet = Sprite::from_png_bytes(CAT_IDLE_SHEET)?;
+fn load_cat_frames(sheet_bytes: &[u8]) -> Result<Vec<Sprite>, CafeSceneError> {
+    let sheet = Sprite::from_png_bytes(sheet_bytes)?;
     let frames = sheet.width() / CAT_FRAME_SIZE;
     let mut sprites = Vec::new();
     for frame in 0..frames.max(1) {
@@ -150,13 +171,14 @@ fn draw_cafe_background(canvas: &mut Canvas) {
         Rgba::rgb(16, 12, 24),
         Rgba::rgb(54, 31, 31),
     );
+    draw_warm_light(canvas);
     draw_rect(
         canvas,
         0,
         cafe_counter_top(canvas.height()),
         canvas.width(),
         canvas.height() - cafe_counter_top(canvas.height()),
-        Rgba::rgb(73, 38, 29),
+        Rgba::rgb(85, 43, 30),
     );
     draw_rect(
         canvas,
@@ -164,11 +186,75 @@ fn draw_cafe_background(canvas: &mut Canvas) {
         cafe_counter_top(canvas.height()),
         canvas.width(),
         8,
-        Rgba::rgb(151, 87, 47),
+        Rgba::rgb(169, 96, 48),
+    );
+    draw_rect(
+        canvas,
+        0,
+        cafe_counter_top(canvas.height()) + 8,
+        canvas.width(),
+        3,
+        Rgba::rgb(48, 26, 26),
     );
     draw_window(canvas);
     draw_shelves(canvas);
     draw_counter_props(canvas);
+}
+
+fn draw_warm_light(canvas: &mut Canvas) {
+    let lamp_x = canvas.width() / 5;
+    let lamp_y = canvas.height() / 5;
+    draw_rect(
+        canvas,
+        lamp_x.saturating_sub(2),
+        0,
+        4,
+        lamp_y.saturating_add(5),
+        Rgba::rgb(58, 34, 31),
+    );
+    draw_rect(
+        canvas,
+        lamp_x.saturating_sub(18),
+        lamp_y,
+        36,
+        11,
+        Rgba::rgb(219, 149, 68),
+    );
+    draw_rect(
+        canvas,
+        lamp_x.saturating_sub(12),
+        lamp_y + 11,
+        24,
+        7,
+        Rgba::rgb(255, 190, 91),
+    );
+
+    // The glow is blocky on purpose: it reads at normal terminal distance and
+    // remains part of the cached background instead of becoming a per-frame cost.
+    draw_rect(
+        canvas,
+        lamp_x.saturating_sub(52),
+        lamp_y + 18,
+        104,
+        24,
+        Rgba::rgb(91, 52, 38),
+    );
+    draw_rect(
+        canvas,
+        lamp_x.saturating_sub(36),
+        lamp_y + 18,
+        72,
+        18,
+        Rgba::rgb(120, 72, 45),
+    );
+    draw_rect(
+        canvas,
+        lamp_x.saturating_sub(20),
+        lamp_y + 18,
+        40,
+        12,
+        Rgba::rgb(188, 123, 61),
+    );
 }
 
 fn draw_window(canvas: &mut Canvas) {
@@ -191,9 +277,10 @@ fn draw_window(canvas: &mut Canvas) {
         y,
         window_width,
         window_height,
-        Rgba::rgb(13, 33, 65),
-        Rgba::rgb(18, 70, 104),
+        Rgba::rgb(7, 22, 68),
+        Rgba::rgb(13, 77, 128),
     );
+    draw_city_silhouette(canvas, x, y, window_width, window_height);
     draw_rect(
         canvas,
         x + window_width / 2 - 2,
@@ -220,10 +307,46 @@ fn draw_window(canvas: &mut Canvas) {
     }
 }
 
+fn draw_city_silhouette(canvas: &mut Canvas, x: u16, y: u16, width: u16, height: u16) {
+    let base_y = y + height.saturating_sub(26);
+    let buildings = [
+        (6, 19, 14),
+        (23, 28, 18),
+        (45, 16, 16),
+        (65, 34, 20),
+        (91, 23, 17),
+        (113, 30, 15),
+    ];
+
+    for (offset_x, building_height, building_width) in buildings {
+        if offset_x >= width {
+            continue;
+        }
+        let building_x = x + offset_x;
+        let building_y = base_y.saturating_sub(building_height);
+        draw_rect(
+            canvas,
+            building_x,
+            building_y,
+            building_width.min(width - offset_x),
+            building_height,
+            Rgba::rgb(9, 19, 42),
+        );
+        for window in 0..3 {
+            let light_x = building_x + 3 + window * 5;
+            let light_y = building_y + 5 + (window % 2) * 8;
+            if light_x + 2 < x + width && light_y + 3 < y + height {
+                draw_rect(canvas, light_x, light_y, 2, 3, Rgba::rgb(227, 169, 76));
+            }
+        }
+    }
+}
+
 fn draw_shelves(canvas: &mut Canvas) {
     let y = canvas.height() / 4;
     let width = canvas.width() / 3;
-    draw_rect(canvas, 24, y, width, 5, Rgba::rgb(121, 68, 41));
+    draw_rect(canvas, 24, y, width, 6, Rgba::rgb(132, 73, 42));
+    draw_rect(canvas, 24, y + 6, width, 3, Rgba::rgb(70, 38, 31));
     for cup in 0..5 {
         let x = 34 + cup * 22;
         draw_rect(
@@ -234,6 +357,27 @@ fn draw_shelves(canvas: &mut Canvas) {
             12,
             Rgba::rgb(218, 166, 91),
         );
+        draw_rect(
+            canvas,
+            x + 2,
+            y.saturating_sub(10),
+            6,
+            3,
+            Rgba::rgb(246, 205, 126),
+        );
+    }
+    draw_rect(
+        canvas,
+        42,
+        y + 34,
+        width.saturating_sub(20),
+        5,
+        Rgba::rgb(112, 61, 40),
+    );
+    for jar in 0..4 {
+        let x = 52 + jar * 25;
+        draw_rect(canvas, x, y + 18, 12, 16, Rgba::rgb(83, 61, 70));
+        draw_rect(canvas, x + 2, y + 20, 8, 9, Rgba::rgb(197, 135, 80));
     }
 }
 
@@ -263,6 +407,27 @@ fn draw_counter_props(canvas: &mut Canvas) {
         14,
         Rgba::rgb(45, 30, 32),
     );
+    draw_rect(
+        canvas,
+        canvas.width().saturating_sub(78),
+        y.saturating_sub(14),
+        15,
+        14,
+        Rgba::rgb(108, 70, 52),
+    );
+    draw_rect(
+        canvas,
+        canvas.width().saturating_sub(73),
+        y.saturating_sub(24),
+        5,
+        10,
+        Rgba::rgb(214, 156, 88),
+    );
+    for panel in 0..5 {
+        let x = 24 + panel * 72;
+        draw_rect(canvas, x, y + 22, 48, 22, Rgba::rgb(103, 53, 33));
+        draw_rect(canvas, x + 3, y + 25, 42, 3, Rgba::rgb(149, 82, 44));
+    }
 }
 
 fn cafe_counter_top(height: u16) -> u16 {

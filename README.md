@@ -35,8 +35,8 @@ The project currently includes:
 - RGB/RGBA canvas storage with dirty-region tracking.
 - Kitty graphics protocol encoding and stateful image presentation.
 - RGBA PNG sprite loading and nearest-neighbor sprite blitting.
-- A first Midnight Cat Cafe runtime scene with a cached procedural background
-  and large imported cat sprite.
+- A first Midnight Cat Cafe runtime scene with a cached procedural background,
+  warm/cool macro regions, and asleep/idle/walk cat sprite states.
 - Full-frame and partial-frame protocol byte counters.
 - Deadline-based 30 FPS frame pacing.
 - Trace diagnostics for render, encode, write, frame time, FPS, skipped
