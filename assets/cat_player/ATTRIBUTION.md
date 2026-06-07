@@ -12,6 +12,7 @@ Current committed files:
 - `Cat_sheets/Cat_asleep_1.png`
 - `Cat_sheets/Cat_idle_1.png`
 - `Cat_sheets/Cat_walk_1.png`
+- `Cat_sheets/CAT _alt.png`
 
 Original pack terms summarized from `Read_me.txt`:
 

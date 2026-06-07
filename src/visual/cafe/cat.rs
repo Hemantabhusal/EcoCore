@@ -1,10 +1,10 @@
 use crate::{
-    assets::{Sprite, SpriteBlit, SpriteError},
+    assets::{Sprite, SpriteError},
     canvas::Canvas,
     simulation::SceneActivity,
 };
 
-use super::background::cafe_counter_top;
+use super::background::{cafe_counter_top, window_geometry};
 
 const CAT_ASLEEP_SHEET: &[u8] =
     include_bytes!("../../../assets/cat_player/Cat_sheets/Cat_asleep_1.png");
@@ -12,12 +12,14 @@ const CAT_IDLE_SHEET: &[u8] =
     include_bytes!("../../../assets/cat_player/Cat_sheets/Cat_idle_1.png");
 const CAT_WALK_SHEET: &[u8] =
     include_bytes!("../../../assets/cat_player/Cat_sheets/Cat_walk_1.png");
+const CAT_ALT: &[u8] = include_bytes!("../../../assets/cat_player/Cat_sheets/CAT _alt.png");
 const CAT_FRAME_SIZE: u16 = 32;
 
 pub(super) struct CatAnimator {
     asleep_frames: Vec<Sprite>,
     idle_frames: Vec<Sprite>,
     walk_frames: Vec<Sprite>,
+    secondary_cat: Sprite,
     presence: CatPresence,
 }
 
@@ -34,20 +36,21 @@ impl CatAnimator {
             asleep_frames: load_cat_frames(CAT_ASLEEP_SHEET)?,
             idle_frames: load_cat_frames(CAT_IDLE_SHEET)?,
             walk_frames: load_cat_frames(CAT_WALK_SHEET)?,
+            secondary_cat: Sprite::from_png_bytes(CAT_ALT)?,
             presence: CatPresence::Idle,
         })
     }
 
     pub(super) fn render(&mut self, canvas: &mut Canvas, tick: u64, activity: &SceneActivity) {
         self.update_presence(activity.average_core_load());
+        self.render_secondary_cat(canvas, tick);
+
         let cat = {
             let (frames, cadence) = self.frames_for_presence();
             let frame_index = ((tick / cadence) as usize) % frames.len();
             frames[frame_index].clone()
         };
-        let scale = readable_cat_scale(canvas.width(), canvas.height());
-        let cat_width = cat.width() * scale;
-        let cat_height = cat.height() * scale;
+        let cat_size = main_cat_size(canvas.width(), canvas.height());
         let counter_top = cafe_counter_top(canvas.height());
         let energy = activity.average_core_load();
         let bob = if energy > 0.55 && tick.is_multiple_of(12) {
@@ -55,17 +58,33 @@ impl CatAnimator {
         } else {
             0
         };
+        let breath = main_cat_breath_offset(self.presence, tick);
         let x = offset_u16(
-            canvas.width().saturating_sub(cat_width) / 2,
+            canvas.width().saturating_sub(cat_size) / 2,
             walking_pace_offset(self.presence, tick),
         );
         let y = counter_top
-            .saturating_sub(cat_height)
+            .saturating_sub(cat_size)
             .saturating_add(8)
+            .saturating_add(breath)
             .saturating_sub(bob);
 
-        cat.blit_scaled(canvas, SpriteBlit { x, y, scale })
+        blit_resized(&cat, canvas, x, y, cat_size, cat_size)
             .expect("cat anchor is chosen to fit inside cafe canvas");
+    }
+
+    fn render_secondary_cat(&self, canvas: &mut Canvas, tick: u64) {
+        let size = secondary_cat_size(canvas.width(), canvas.height());
+        let window = window_geometry(canvas.width(), canvas.height());
+        let x = window.x + window.width.saturating_sub(size + 18);
+        let y = window
+            .y
+            .saturating_add(window.height)
+            .saturating_sub(size + 8)
+            .saturating_add(((tick / 75) % 2) as u16);
+
+        blit_resized(&self.secondary_cat, canvas, x, y, size, size)
+            .expect("secondary cat anchor is chosen to fit inside cafe canvas");
     }
 
     fn update_presence(&mut self, average_core_load: f32) {
@@ -91,14 +110,22 @@ impl CatAnimator {
     }
 }
 
+fn main_cat_breath_offset(presence: CatPresence, tick: u64) -> u16 {
+    match presence {
+        CatPresence::Idle => ((tick / 30) % 2) as u16,
+        CatPresence::Asleep => ((tick / 45) % 2) as u16,
+        CatPresence::Walking => 0,
+    }
+}
+
 fn walking_pace_offset(presence: CatPresence, tick: u64) -> i16 {
     if presence != CatPresence::Walking {
         return 0;
     }
 
-    let phase = ((tick / 6) % 12) as i16;
-    let triangle = if phase <= 6 { phase } else { 12 - phase };
-    (triangle - 3) * 4
+    let phase = ((tick / 6) % 24) as i16;
+    let triangle = if phase <= 12 { phase } else { 24 - phase };
+    (triangle - 6) * 5
 }
 
 fn offset_u16(value: u16, offset: i16) -> u16 {
@@ -109,14 +136,72 @@ fn offset_u16(value: u16, offset: i16) -> u16 {
     }
 }
 
-fn readable_cat_scale(width: u16, height: u16) -> u16 {
+fn main_cat_size(width: u16, height: u16) -> u16 {
     if width >= 640 && height >= 300 {
-        4
+        66
     } else if width >= 540 && height >= 252 {
-        3
+        50
     } else {
-        2
+        42
     }
+}
+
+fn secondary_cat_size(width: u16, height: u16) -> u16 {
+    if width >= 640 && height >= 300 {
+        44
+    } else if width >= 540 && height >= 252 {
+        34
+    } else {
+        28
+    }
+}
+
+fn blit_resized(
+    sprite: &Sprite,
+    canvas: &mut Canvas,
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+) -> Result<(), SpriteError> {
+    if width == 0 || height == 0 {
+        return Err(SpriteError::InvalidSize { width, height });
+    }
+    if x >= canvas.width()
+        || y >= canvas.height()
+        || x.saturating_add(width) > canvas.width()
+        || y.saturating_add(height) > canvas.height()
+    {
+        return Err(SpriteError::OutOfCanvas {
+            x,
+            y,
+            width,
+            height,
+        });
+    }
+
+    for dy in 0..height {
+        let source_y = dy * sprite.height() / height;
+        for dx in 0..width {
+            let source_x = dx * sprite.width() / width;
+            let source = sprite
+                .pixel(source_x, source_y)
+                .expect("resized source coordinate is in bounds");
+            if source.a == 0 {
+                continue;
+            }
+            let target_x = x + dx;
+            let target_y = y + dy;
+            let background = canvas
+                .pixel(target_x, target_y)
+                .expect("validated resize target is in bounds");
+            canvas
+                .set_pixel(target_x, target_y, source.blend_over(background))
+                .map_err(SpriteError::Canvas)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn load_cat_frames(sheet_bytes: &[u8]) -> Result<Vec<Sprite>, SpriteError> {

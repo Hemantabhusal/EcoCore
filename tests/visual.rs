@@ -47,13 +47,14 @@ fn cafe_scene_renders_larger_macro_readable_canvas_with_cat_anchor() {
         .iter()
         .filter(|pixel| pixel.a == 255 && pixel.r > 150 && pixel.g > 130 && pixel.b > 105)
         .count();
-    assert!(cat_pixels > 800, "cat sprite should read as a large anchor");
+    assert!(cat_pixels > 350, "cat sprite should read as a clear anchor");
 
     assert_eq!(
         scene.layer_names().as_slice(),
         [
             "cafe_background",
             "main_cat_sprite",
+            "secondary_cat_sprite",
             "window_rain",
             "warm_light",
             "counter_activity"
@@ -86,9 +87,10 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
     let canvas = scene.render(0, &SceneActivity::default());
 
     let window = canvas.pixel(335, 70).expect("window pixel in bounds");
-    let clean_night = canvas
-        .pixel(370, 118)
-        .expect("window night pixel in bounds");
+    let clean_night = canvas.pixel(370, 78).expect("window night pixel in bounds");
+    let skyline = canvas
+        .pixel(342, 132)
+        .expect("window skyline pixel in bounds");
     let counter = canvas.pixel(256, 190).expect("counter pixel in bounds");
     let cat_stage = canvas.pixel(256, 174).expect("cat stage pixel in bounds");
     let lamp = canvas.pixel(100, 54).expect("lamp pixel in bounds");
@@ -99,7 +101,11 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
     assert!(window.b > window.r * 2, "window should read as cool night");
     assert!(
         clean_night.b > clean_night.r * 2 && clean_night.b > 60,
-        "window should read as clean night glass, not random dark buildings"
+        "upper window should read as clean night glass"
+    );
+    assert!(
+        skyline.b < clean_night.b && skyline.r < 25,
+        "window scenery should sit low as an intentional distant skyline"
     );
     assert!(
         counter.r > counter.b * 2,
@@ -183,6 +189,11 @@ fn cafe_scene_uses_smaller_cat_footprint_on_balanced_canvas() {
         dirty_region.height <= 170,
         "cat and window rain should not fill the scene height"
     );
+    let white_bounds = white_cat_bounds(canvas).expect("main cat should be visible");
+    assert!(
+        white_bounds.1 - white_bounds.0 <= 48,
+        "main cat should be smaller than the previous 2x sprite footprint"
+    );
 }
 
 #[test]
@@ -236,6 +247,46 @@ fn cafe_scene_walking_cat_paces_horizontally_under_high_cpu() {
 }
 
 #[test]
+fn cafe_scene_idle_cat_breathes_subtly_in_place() {
+    let mut scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
+    let idle = SceneActivity::from_core_loads(vec![0.35]);
+
+    scene.render(0, &idle);
+    let first_bounds =
+        white_cat_bounds(scene.render(20, &idle)).expect("idle cat should have visible pixels");
+    let second_bounds =
+        white_cat_bounds(scene.render(50, &idle)).expect("idle cat should remain visible");
+
+    assert!(
+        first_bounds.2.abs_diff(second_bounds.2) <= 2,
+        "idle breathing should be subtle, not a jump"
+    );
+    assert_ne!(
+        first_bounds.2, second_bounds.2,
+        "idle cat should breathe instead of freezing in place"
+    );
+}
+
+#[test]
+fn cafe_scene_renders_secondary_black_cat_for_variety() {
+    let mut scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
+
+    let canvas = scene.render(0, &SceneActivity::default());
+    let accent_pixels = count_secondary_cat_accent_pixels(canvas);
+    let white_bounds = white_cat_bounds(canvas).expect("main cat should be visible");
+    let secondary_bounds = secondary_cat_accent_bounds(canvas)
+        .expect("secondary black cat should have colored accent pixels");
+
+    assert!(accent_pixels > 12, "black alternate cat should be visible");
+    assert!(
+        secondary_bounds.1 - secondary_bounds.0 < white_bounds.1 - white_bounds.0,
+        "black customer cat should be smaller than the main cat"
+    );
+}
+
+#[test]
 fn cafe_scene_maps_non_cpu_metrics_to_bounded_counter_activity() {
     let mut calm_scene =
         CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
@@ -278,14 +329,48 @@ fn cafe_scene_maps_non_cpu_metrics_to_bounded_counter_activity() {
     );
 }
 
-fn white_cat_bounds(canvas: &Canvas) -> Option<(u16, u16)> {
+fn white_cat_bounds(canvas: &Canvas) -> Option<(u16, u16, u16)> {
+    let mut min_x = u16::MAX;
+    let mut max_x = 0;
+    let mut min_y = u16::MAX;
+    let mut found = false;
+    for y in 100..190 {
+        for x in 200..320 {
+            let pixel = canvas.pixel(x, y).expect("test scans in-bounds pixels");
+            if pixel.a == 255 && pixel.r > 210 && pixel.g > 210 && pixel.b > 210 {
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                found = true;
+            }
+        }
+    }
+
+    found.then_some((min_x, max_x, min_y))
+}
+
+fn count_secondary_cat_accent_pixels(canvas: &Canvas) -> usize {
+    (108..152)
+        .flat_map(|y| (416..462).map(move |x| (x, y)))
+        .filter(|(x, y)| {
+            let pixel = canvas
+                .pixel(*x, *y)
+                .expect("customer cat scan stays in-bounds");
+            pixel.a == 255 && pixel.r > 200 && pixel.g > 80 && pixel.g < 150 && pixel.b > 100
+        })
+        .count()
+}
+
+fn secondary_cat_accent_bounds(canvas: &Canvas) -> Option<(u16, u16)> {
     let mut min_x = u16::MAX;
     let mut max_x = 0;
     let mut found = false;
-    for y in 0..canvas.height() {
-        for x in 0..canvas.width() {
-            let pixel = canvas.pixel(x, y).expect("test scans in-bounds pixels");
-            if pixel.a == 255 && pixel.r > 210 && pixel.g > 210 && pixel.b > 210 {
+    for y in 108..152 {
+        for x in 416..462 {
+            let pixel = canvas
+                .pixel(x, y)
+                .expect("customer cat scan stays in-bounds");
+            if pixel.a == 255 && pixel.r > 200 && pixel.g > 80 && pixel.g < 150 && pixel.b > 100 {
                 min_x = min_x.min(x);
                 max_x = max_x.max(x);
                 found = true;

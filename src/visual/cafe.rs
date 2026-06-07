@@ -14,6 +14,7 @@ use effects::{render_counter_activity, render_window_rain};
 
 const CAFE_BACKGROUND: &str = "cafe_background";
 const MAIN_CAT_SPRITE: &str = "main_cat_sprite";
+const SECONDARY_CAT_SPRITE: &str = "secondary_cat_sprite";
 const WINDOW_RAIN: &str = "window_rain";
 const WARM_LIGHT: &str = "warm_light";
 const COUNTER_ACTIVITY: &str = "counter_activity";
@@ -82,10 +83,11 @@ impl CafeScene {
         &self.canvas
     }
 
-    pub const fn layer_names(&self) -> [&'static str; 5] {
+    pub const fn layer_names(&self) -> [&'static str; 6] {
         [
             CAFE_BACKGROUND,
             MAIN_CAT_SPRITE,
+            SECONDARY_CAT_SPRITE,
             WINDOW_RAIN,
             WARM_LIGHT,
             COUNTER_ACTIVITY,

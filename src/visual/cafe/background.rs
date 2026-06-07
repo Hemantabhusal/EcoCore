@@ -177,6 +177,7 @@ fn draw_window(canvas: &mut Canvas) {
         Rgba::rgb(13, 77, 128),
     );
     draw_moon(canvas, x + window_width / 4, y + window_height / 5);
+    draw_distant_skyline(canvas, x, y, window_width, window_height);
     draw_rect(
         canvas,
         x + window_width / 2 - 2,
@@ -206,6 +207,48 @@ fn draw_window(canvas: &mut Canvas) {
 fn draw_moon(canvas: &mut Canvas, x: u16, y: u16) {
     draw_rect(canvas, x, y, 10, 10, Rgba::rgb(207, 211, 184));
     draw_rect(canvas, x + 6, y, 5, 10, Rgba::rgb(8, 31, 78));
+}
+
+fn draw_distant_skyline(canvas: &mut Canvas, x: u16, y: u16, width: u16, height: u16) {
+    let base_y = y + height.saturating_sub(16);
+    let buildings = [
+        (28, 18, 13),
+        (42, 28, 16),
+        (60, 22, 12),
+        (100, 25, 15),
+        (118, 18, 12),
+    ];
+
+    for (offset_x, building_height, building_width) in buildings {
+        let building_x = x + offset_x;
+        let building_y = base_y.saturating_sub(building_height);
+        draw_rect(
+            canvas,
+            building_x,
+            building_y,
+            building_width.min(width.saturating_sub(offset_x)),
+            building_height,
+            Rgba::rgb(8, 20, 42),
+        );
+        draw_rect(
+            canvas,
+            building_x,
+            base_y.saturating_sub(1),
+            building_width.min(width.saturating_sub(offset_x)),
+            2,
+            Rgba::rgb(12, 49, 86),
+        );
+        for light in 0..2 {
+            draw_rect(
+                canvas,
+                building_x + 3 + light * 6,
+                building_y + 6 + (light % 2) * 7,
+                2,
+                3,
+                Rgba::rgb(214, 157, 72),
+            );
+        }
+    }
 }
 
 fn draw_shelves(canvas: &mut Canvas) {
