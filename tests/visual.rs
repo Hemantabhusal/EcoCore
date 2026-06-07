@@ -55,7 +55,8 @@ fn cafe_scene_renders_larger_macro_readable_canvas_with_cat_anchor() {
             "cafe_background",
             "main_cat_sprite",
             "window_rain",
-            "warm_light"
+            "warm_light",
+            "counter_activity"
         ]
     );
 }
@@ -190,6 +191,49 @@ fn cafe_scene_keeps_walking_state_through_brief_cpu_dip() {
     assert!(
         changed_pixels > 100,
         "brief CPU dips should not immediately snap the cat out of walking"
+    );
+}
+
+#[test]
+fn cafe_scene_maps_non_cpu_metrics_to_bounded_counter_activity() {
+    let mut calm_scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
+    let mut busy_scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
+    let busy_activity = SceneActivity::default()
+        .with_memory_pressure(0.9)
+        .with_network_flow(0.8, 0.5)
+        .with_disk_activity(0.7, 1.0);
+
+    calm_scene.render(0, &SceneActivity::default());
+    busy_scene.render(0, &busy_activity);
+
+    let calm = calm_scene
+        .render(18, &SceneActivity::default())
+        .pixels()
+        .to_vec();
+    let busy_canvas = busy_scene.render(18, &busy_activity);
+    let busy = busy_canvas.pixels().to_vec();
+    let dirty_region = busy_canvas
+        .dirty_region()
+        .expect("counter activity should mark dirty pixels");
+    let changed_pixels = busy
+        .iter()
+        .zip(&calm)
+        .filter(|(busy, calm)| busy != calm)
+        .count();
+
+    assert!(
+        changed_pixels > 30,
+        "non-CPU metrics should produce visible bounded counter activity"
+    );
+    assert!(
+        dirty_region.width <= 180,
+        "counter activity must remain horizontally clustered"
+    );
+    assert!(
+        dirty_region.height <= 96,
+        "counter activity must stay near the counter"
     );
 }
 
