@@ -86,12 +86,19 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
     let canvas = scene.render(0, &SceneActivity::default());
 
     let window = canvas.pixel(335, 70).expect("window pixel in bounds");
+    let clean_night = canvas
+        .pixel(370, 118)
+        .expect("window night pixel in bounds");
     let counter = canvas.pixel(256, 190).expect("counter pixel in bounds");
     let cat_stage = canvas.pixel(256, 174).expect("cat stage pixel in bounds");
     let lamp = canvas.pixel(100, 54).expect("lamp pixel in bounds");
     let wall = canvas.pixel(52, 132).expect("wall pixel in bounds");
 
     assert!(window.b > window.r * 2, "window should read as cool night");
+    assert!(
+        clean_night.b > clean_night.r * 2 && clean_night.b > 60,
+        "window should read as clean night glass, not random dark buildings"
+    );
     assert!(
         counter.r > counter.b * 2,
         "counter should read as warm wood"
@@ -137,8 +144,14 @@ fn cafe_scene_switches_cat_presence_with_cpu_activity_inside_same_area() {
         changed_pixels > 100,
         "cat state should visibly change with high CPU"
     );
-    assert!(dirty_region.width <= 128);
-    assert!(dirty_region.height <= 112);
+    assert!(
+        dirty_region.width <= 280,
+        "cat plus window rain should remain bounded"
+    );
+    assert!(
+        dirty_region.height <= 160,
+        "cat plus window rain should not dirty the full scene height"
+    );
 }
 
 #[test]
@@ -153,12 +166,12 @@ fn cafe_scene_uses_smaller_cat_footprint_on_balanced_canvas() {
         .expect("cat animation should mark a bounded region");
 
     assert!(
-        dirty_region.width <= 96,
-        "cat should not dominate the 512x240 cafe width"
+        dirty_region.width <= 280,
+        "cat and window rain should not dominate the 512x240 cafe width"
     );
     assert!(
-        dirty_region.height <= 96,
-        "cat should stay staged around the counter, not fill the scene"
+        dirty_region.height <= 170,
+        "cat and window rain should not fill the scene height"
     );
 }
 
@@ -228,12 +241,41 @@ fn cafe_scene_maps_non_cpu_metrics_to_bounded_counter_activity() {
         "non-CPU metrics should produce visible bounded counter activity"
     );
     assert!(
-        dirty_region.width <= 180,
-        "counter activity must remain horizontally clustered"
+        dirty_region.width <= 300,
+        "counter activity plus window rain must remain horizontally bounded"
     );
     assert!(
-        dirty_region.height <= 96,
-        "counter activity must stay near the counter"
+        dirty_region.height <= 170,
+        "counter activity plus window rain must not dirty the full canvas height"
+    );
+}
+
+#[test]
+fn cafe_scene_animates_window_rain_without_dirtying_the_whole_window() {
+    let mut scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
+
+    scene.render(0, &SceneActivity::default());
+    let first_rain_frame = scene.render(1, &SceneActivity::default()).pixels().to_vec();
+    let second_canvas = scene.render(6, &SceneActivity::default());
+    let second_rain_frame = second_canvas.pixels().to_vec();
+    let dirty_region = second_canvas
+        .dirty_region()
+        .expect("animated rain should mark bounded dirty pixels");
+    let changed_pixels = first_rain_frame
+        .iter()
+        .zip(&second_rain_frame)
+        .filter(|(first, second)| first != second)
+        .count();
+
+    assert!(changed_pixels > 20, "window rain should animate");
+    assert!(
+        dirty_region.width <= 260,
+        "rain plus cat should stay bounded instead of repainting the scene"
+    );
+    assert!(
+        dirty_region.height <= 160,
+        "rain plus cat should not dirty the full canvas height"
     );
 }
 

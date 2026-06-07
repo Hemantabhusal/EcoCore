@@ -79,6 +79,7 @@ impl CafeScene {
             }
         }
 
+        self.render_window_rain(tick, activity);
         self.render_counter_activity(tick, activity);
         self.render_main_cat(tick, activity);
         self.previous_dynamic_dirty = self.canvas.dirty_regions();
@@ -156,6 +157,28 @@ impl CafeScene {
         }
     }
 
+    fn render_window_rain(&mut self, tick: u64, activity: &SceneActivity) {
+        let WindowGeometry {
+            x,
+            y,
+            width,
+            height,
+        } = window_geometry(self.canvas.width(), self.canvas.height());
+        let network = activity.network_download().max(activity.network_upload());
+        let streaks = 5 + (network * 5.0).round() as u16;
+        let speed = 2 + (network * 4.0).round() as u16;
+
+        // Keep rain sparse. Dense full-window weather looks better in a still
+        // image, but it would dirty most of the window every frame.
+        for index in 0..streaks.min(10) {
+            let rain_x =
+                x + 10 + ((index * 29 + (tick as u16 % 11)) % width.saturating_sub(20).max(1));
+            let rain_y =
+                y + 6 + (((index * 37) + (tick as u16 * speed)) % height.saturating_sub(16).max(1));
+            draw_slanted_rain(&mut self.canvas, rain_x, rain_y, 7, Rgba::rgb(96, 151, 190));
+        }
+    }
+
     fn render_main_cat(&mut self, tick: u64, activity: &SceneActivity) {
         self.update_cat_presence(activity.average_core_load());
         let cat = {
@@ -230,6 +253,25 @@ fn offset_u16(value: u16, offset: i16) -> u16 {
         value.saturating_sub(offset.unsigned_abs())
     } else {
         value.saturating_add(offset as u16)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct WindowGeometry {
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
+}
+
+fn window_geometry(canvas_width: u16, canvas_height: u16) -> WindowGeometry {
+    let width = canvas_width / 3;
+    let height = canvas_height / 2;
+    WindowGeometry {
+        x: canvas_width - width - canvas_width / 12,
+        y: canvas_height / 8,
+        width,
+        height,
     }
 }
 
@@ -366,10 +408,12 @@ fn draw_warm_light(canvas: &mut Canvas) {
 }
 
 fn draw_window(canvas: &mut Canvas) {
-    let window_width = canvas.width() / 3;
-    let window_height = canvas.height() / 2;
-    let x = canvas.width() - window_width - canvas.width() / 12;
-    let y = canvas.height() / 8;
+    let WindowGeometry {
+        x,
+        y,
+        width: window_width,
+        height: window_height,
+    } = window_geometry(canvas.width(), canvas.height());
 
     draw_rect(
         canvas,
@@ -388,7 +432,7 @@ fn draw_window(canvas: &mut Canvas) {
         Rgba::rgb(7, 22, 68),
         Rgba::rgb(13, 77, 128),
     );
-    draw_city_silhouette(canvas, x, y, window_width, window_height);
+    draw_moon(canvas, x + window_width / 4, y + window_height / 5);
     draw_rect(
         canvas,
         x + window_width / 2 - 2,
@@ -405,49 +449,11 @@ fn draw_window(canvas: &mut Canvas) {
         4,
         Rgba::rgb(36, 27, 38),
     );
-
-    // Rain is static in 4A so the first sprite milestone does not accidentally
-    // spread dirty tiles across the whole scene.
-    for index in 0..18 {
-        let rain_x = x + 8 + ((index * 17) % window_width.max(1));
-        let rain_y = y + 4 + ((index * 23) % window_height.max(1));
-        draw_line_down(canvas, rain_x, rain_y, 5, Rgba::rgb(95, 151, 184));
-    }
 }
 
-fn draw_city_silhouette(canvas: &mut Canvas, x: u16, y: u16, width: u16, height: u16) {
-    let base_y = y + height.saturating_sub(26);
-    let buildings = [
-        (6, 19, 14),
-        (23, 28, 18),
-        (45, 16, 16),
-        (65, 34, 20),
-        (91, 23, 17),
-        (113, 30, 15),
-    ];
-
-    for (offset_x, building_height, building_width) in buildings {
-        if offset_x >= width {
-            continue;
-        }
-        let building_x = x + offset_x;
-        let building_y = base_y.saturating_sub(building_height);
-        draw_rect(
-            canvas,
-            building_x,
-            building_y,
-            building_width.min(width - offset_x),
-            building_height,
-            Rgba::rgb(9, 19, 42),
-        );
-        for window in 0..3 {
-            let light_x = building_x + 3 + window * 5;
-            let light_y = building_y + 5 + (window % 2) * 8;
-            if light_x + 2 < x + width && light_y + 3 < y + height {
-                draw_rect(canvas, light_x, light_y, 2, 3, Rgba::rgb(227, 169, 76));
-            }
-        }
-    }
+fn draw_moon(canvas: &mut Canvas, x: u16, y: u16) {
+    draw_rect(canvas, x, y, 10, 10, Rgba::rgb(207, 211, 184));
+    draw_rect(canvas, x + 6, y, 5, 10, Rgba::rgb(8, 31, 78));
 }
 
 fn draw_shelves(canvas: &mut Canvas) {
@@ -608,12 +614,13 @@ fn draw_vertical_gradient(
     }
 }
 
-fn draw_line_down(canvas: &mut Canvas, x: u16, y: u16, length: u16, color: Rgba) {
+fn draw_slanted_rain(canvas: &mut Canvas, x: u16, y: u16, length: u16, color: Rgba) {
     for offset in 0..length {
         let py = y + offset;
-        if x < canvas.width() && py < canvas.height() {
+        let px = x.saturating_add(offset / 3);
+        if px < canvas.width() && py < canvas.height() {
             canvas
-                .set_pixel(x, py, color)
+                .set_pixel(px, py, color)
                 .expect("rain pixel in bounds");
         }
     }

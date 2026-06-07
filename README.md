@@ -37,8 +37,8 @@ The project currently includes:
 - RGBA PNG sprite loading and nearest-neighbor sprite blitting.
 - A Midnight Cat Cafe runtime scene with a cached procedural background,
   warm/cool macro regions, a staged counter cat, asleep/idle/walk cat states
-  with hysteresis, bounded counter activity for non-CPU metrics, and a measured
-  larger `512x240` cafe canvas target.
+  with hysteresis, sparse animated window rain, bounded counter activity for
+  non-CPU metrics, and a measured larger `512x240` cafe canvas target.
 - Full-frame and partial-frame protocol byte counters.
 - Deadline-based 30 FPS frame pacing.
 - Trace diagnostics for render, encode, write, frame time, FPS, skipped
