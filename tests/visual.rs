@@ -93,6 +93,8 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
     let cat_stage = canvas.pixel(256, 174).expect("cat stage pixel in bounds");
     let lamp = canvas.pixel(100, 54).expect("lamp pixel in bounds");
     let wall = canvas.pixel(52, 132).expect("wall pixel in bounds");
+    let wall_panel = canvas.pixel(92, 132).expect("wall panel pixel in bounds");
+    let counter_lip = canvas.pixel(180, 162).expect("counter lip pixel in bounds");
 
     assert!(window.b > window.r * 2, "window should read as cool night");
     assert!(
@@ -106,6 +108,14 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
     assert!(
         cat_stage.r < counter.r && cat_stage.b < 40,
         "counter should stage the cat with a darker resting area"
+    );
+    assert!(
+        wall_panel.r + 8 < wall.r,
+        "wall should have deliberate depth bands instead of one flat rectangle"
+    );
+    assert!(
+        counter_lip.r > counter.r,
+        "counter lip should read brighter than the lower counter face"
     );
     assert!(
         lamp.r > 180 && lamp.g > 120,
@@ -208,6 +218,24 @@ fn cafe_scene_keeps_walking_state_through_brief_cpu_dip() {
 }
 
 #[test]
+fn cafe_scene_walking_cat_paces_horizontally_under_high_cpu() {
+    let mut scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
+    let high_cpu = SceneActivity::from_core_loads(vec![1.0]);
+
+    scene.render(0, &high_cpu);
+    let first_bounds = white_cat_bounds(scene.render(30, &high_cpu))
+        .expect("walking cat should have visible white pixels");
+    let second_bounds =
+        white_cat_bounds(scene.render(54, &high_cpu)).expect("walking cat should remain visible");
+
+    assert!(
+        first_bounds.0.abs_diff(second_bounds.0) >= 4,
+        "walking state should pace horizontally instead of animating in place"
+    );
+}
+
+#[test]
 fn cafe_scene_maps_non_cpu_metrics_to_bounded_counter_activity() {
     let mut calm_scene =
         CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
@@ -248,6 +276,24 @@ fn cafe_scene_maps_non_cpu_metrics_to_bounded_counter_activity() {
         dirty_region.height <= 170,
         "counter activity plus window rain must not dirty the full canvas height"
     );
+}
+
+fn white_cat_bounds(canvas: &Canvas) -> Option<(u16, u16)> {
+    let mut min_x = u16::MAX;
+    let mut max_x = 0;
+    let mut found = false;
+    for y in 0..canvas.height() {
+        for x in 0..canvas.width() {
+            let pixel = canvas.pixel(x, y).expect("test scans in-bounds pixels");
+            if pixel.a == 255 && pixel.r > 210 && pixel.g > 210 && pixel.b > 210 {
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                found = true;
+            }
+        }
+    }
+
+    found.then_some((min_x, max_x))
 }
 
 #[test]
