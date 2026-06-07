@@ -27,11 +27,11 @@ impl Default for RuntimeConfig {
             target_fps: 30,
             metrics_sample_interval: Duration::from_millis(500),
             resize_debounce: Duration::from_millis(50),
-            // Phase 4 starts with a larger macro-readable cafe canvas. Static
+            // Phase 4 uses a larger macro-readable cafe canvas. Static
             // background caching and bounded sprite animation should carry the
             // performance load instead of tiny effects scattered everywhere.
-            image_columns: 50,
-            image_rows: 16,
+            image_columns: 70,
+            image_rows: 22,
             cell_size: CellSize::new(8, 12),
         }
     }

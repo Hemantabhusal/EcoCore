@@ -122,7 +122,13 @@ impl CafeScene {
 }
 
 fn readable_cat_scale(width: u16, height: u16) -> u16 {
-    if width >= 380 && height >= 180 { 3 } else { 2 }
+    if width >= 520 && height >= 240 {
+        4
+    } else if width >= 380 && height >= 180 {
+        3
+    } else {
+        2
+    }
 }
 
 fn load_cat_frames(sheet_bytes: &[u8]) -> Result<Vec<Sprite>, CafeSceneError> {

@@ -6,6 +6,9 @@ use ecosystem::{
     },
 };
 
+const CAFE_WIDTH: u16 = 560;
+const CAFE_HEIGHT: u16 = 264;
+
 struct FillLayer {
     color: Rgba,
 }
@@ -31,19 +34,23 @@ impl SceneLayer for MarkerLayer {
 
 #[test]
 fn cafe_scene_renders_larger_macro_readable_canvas_with_cat_anchor() {
-    let mut scene = CafeScene::new(CafeCanvasConfig::new(400, 192)).expect("valid cafe scene");
+    let mut scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
 
     let canvas = scene.render(0, &SceneActivity::default());
 
-    assert_eq!(canvas.width(), 400);
-    assert_eq!(canvas.height(), 192);
+    assert_eq!(canvas.width(), CAFE_WIDTH);
+    assert_eq!(canvas.height(), CAFE_HEIGHT);
     assert!(canvas.full_frame_required());
     let cat_pixels = canvas
         .pixels()
         .iter()
         .filter(|pixel| pixel.a == 255 && pixel.r > 150 && pixel.g > 130 && pixel.b > 105)
         .count();
-    assert!(cat_pixels > 800, "cat sprite should read as a large anchor");
+    assert!(
+        cat_pixels > 1_400,
+        "cat sprite should read as a large anchor"
+    );
 
     assert_eq!(
         scene.layer_names().as_slice(),
@@ -58,7 +65,8 @@ fn cafe_scene_renders_larger_macro_readable_canvas_with_cat_anchor() {
 
 #[test]
 fn cafe_scene_keeps_quiet_animation_dirty_region_spatially_bounded() {
-    let mut scene = CafeScene::new(CafeCanvasConfig::new(400, 192)).expect("valid cafe scene");
+    let mut scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
 
     scene.render(0, &SceneActivity::default());
     let canvas = scene.render(1, &SceneActivity::default());
@@ -75,13 +83,14 @@ fn cafe_scene_keeps_quiet_animation_dirty_region_spatially_bounded() {
 
 #[test]
 fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
-    let mut scene = CafeScene::new(CafeCanvasConfig::new(400, 192)).expect("valid cafe scene");
+    let mut scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
     let canvas = scene.render(0, &SceneActivity::default());
 
-    let window = canvas.pixel(260, 60).expect("window pixel in bounds");
-    let counter = canvas.pixel(200, 152).expect("counter pixel in bounds");
-    let lamp = canvas.pixel(78, 42).expect("lamp pixel in bounds");
-    let wall = canvas.pixel(36, 104).expect("wall pixel in bounds");
+    let window = canvas.pixel(370, 76).expect("window pixel in bounds");
+    let counter = canvas.pixel(280, 210).expect("counter pixel in bounds");
+    let lamp = canvas.pixel(110, 58).expect("lamp pixel in bounds");
+    let wall = canvas.pixel(52, 144).expect("wall pixel in bounds");
 
     assert!(window.b > window.r * 2, "window should read as cool night");
     assert!(
@@ -98,9 +107,10 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
 
 #[test]
 fn cafe_scene_switches_cat_presence_with_cpu_activity_inside_same_area() {
-    let mut calm_scene = CafeScene::new(CafeCanvasConfig::new(400, 192)).expect("valid cafe scene");
+    let mut calm_scene =
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
     let mut active_scene =
-        CafeScene::new(CafeCanvasConfig::new(400, 192)).expect("valid cafe scene");
+        CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
 
     calm_scene.render(0, &SceneActivity::default());
     active_scene.render(0, &SceneActivity::from_core_loads(vec![1.0]));
@@ -124,8 +134,8 @@ fn cafe_scene_switches_cat_presence_with_cpu_activity_inside_same_area() {
         changed_pixels > 100,
         "cat state should visibly change with high CPU"
     );
-    assert!(dirty_region.width <= 128);
-    assert!(dirty_region.height <= 112);
+    assert!(dirty_region.width <= 176);
+    assert!(dirty_region.height <= 152);
 }
 
 #[test]
