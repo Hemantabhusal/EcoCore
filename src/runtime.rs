@@ -30,8 +30,8 @@ impl Default for RuntimeConfig {
             // Phase 4 uses a larger macro-readable cafe canvas. Static
             // background caching and bounded sprite animation should carry the
             // performance load instead of tiny effects scattered everywhere.
-            image_columns: 70,
-            image_rows: 22,
+            image_columns: 64,
+            image_rows: 20,
             cell_size: CellSize::new(8, 12),
         }
     }

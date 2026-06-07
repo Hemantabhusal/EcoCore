@@ -6,8 +6,8 @@ use ecosystem::{
     },
 };
 
-const CAFE_WIDTH: u16 = 560;
-const CAFE_HEIGHT: u16 = 264;
+const CAFE_WIDTH: u16 = 512;
+const CAFE_HEIGHT: u16 = 240;
 
 struct FillLayer {
     color: Rgba,
@@ -47,10 +47,7 @@ fn cafe_scene_renders_larger_macro_readable_canvas_with_cat_anchor() {
         .iter()
         .filter(|pixel| pixel.a == 255 && pixel.r > 150 && pixel.g > 130 && pixel.b > 105)
         .count();
-    assert!(
-        cat_pixels > 1_400,
-        "cat sprite should read as a large anchor"
-    );
+    assert!(cat_pixels > 800, "cat sprite should read as a large anchor");
 
     assert_eq!(
         scene.layer_names().as_slice(),
@@ -87,10 +84,10 @@ fn cafe_scene_background_has_readable_window_counter_and_light_regions() {
         CafeScene::new(CafeCanvasConfig::new(CAFE_WIDTH, CAFE_HEIGHT)).expect("valid cafe scene");
     let canvas = scene.render(0, &SceneActivity::default());
 
-    let window = canvas.pixel(370, 76).expect("window pixel in bounds");
-    let counter = canvas.pixel(280, 210).expect("counter pixel in bounds");
-    let lamp = canvas.pixel(110, 58).expect("lamp pixel in bounds");
-    let wall = canvas.pixel(52, 144).expect("wall pixel in bounds");
+    let window = canvas.pixel(335, 70).expect("window pixel in bounds");
+    let counter = canvas.pixel(256, 190).expect("counter pixel in bounds");
+    let lamp = canvas.pixel(100, 54).expect("lamp pixel in bounds");
+    let wall = canvas.pixel(52, 132).expect("wall pixel in bounds");
 
     assert!(window.b > window.r * 2, "window should read as cool night");
     assert!(
@@ -134,8 +131,8 @@ fn cafe_scene_switches_cat_presence_with_cpu_activity_inside_same_area() {
         changed_pixels > 100,
         "cat state should visibly change with high CPU"
     );
-    assert!(dirty_region.width <= 176);
-    assert!(dirty_region.height <= 152);
+    assert!(dirty_region.width <= 128);
+    assert!(dirty_region.height <= 112);
 }
 
 #[test]

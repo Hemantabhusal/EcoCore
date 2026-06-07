@@ -24,19 +24,19 @@ fn centered_image_placement_uses_one_based_cursor_coordinates() {
 
 #[test]
 fn cafe_layout_uses_larger_macro_readable_canvas() {
-    let layout = graphics_layout(TerminalSize::new(120, 40), 70, 22, CellSize::new(8, 12));
+    let layout = graphics_layout(TerminalSize::new(120, 40), 64, 20, CellSize::new(8, 12));
 
     assert_eq!(
         layout,
         GraphicsLayout {
             placement: ImagePlacement {
-                cursor_column: 26,
-                cursor_row: 10,
-                columns: 70,
-                rows: 22
+                cursor_column: 29,
+                cursor_row: 11,
+                columns: 64,
+                rows: 20
             },
-            canvas_width: 560,
-            canvas_height: 264
+            canvas_width: 512,
+            canvas_height: 240
         }
     );
 }
